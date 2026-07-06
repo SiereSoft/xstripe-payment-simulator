@@ -1,0 +1,13 @@
+services:
+  fake-stripe:
+    build: .
+    container_name: fake-stripe
+    ports:
+      - "12111:12111"
+    environment:
+      # Deterministic starting world. Change and `docker compose up --build`
+      # (or call POST /v1/admin/reset?seed=N at runtime) to get a different world.
+      FAKE_STRIPE_SEED: "1"
+    volumes:
+      # Persist the in-memory state snapshot across restarts.
+      - ./data:/data

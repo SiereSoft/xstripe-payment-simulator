@@ -1,0 +1,92 @@
+package com.fakestripe.error
+
+import io.ktor.http.HttpStatusCode
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+/**
+ * Stripe error types. The `type` field is the coarse category the SDKs switch on
+ * to decide which exception class to raise (CardError, InvalidRequestError, ...).
+ */
+enum class StripeErrorType(val wire: String) {
+    CARD_ERROR("card_error"),
+    INVALID_REQUEST_ERROR("invalid_request_error"),
+    IDEMPOTENCY_ERROR("idempotency_error"),
+    API_ERROR("api_error"),
+    AUTHENTICATION_ERROR("authentication_error"),
+}
+
+/**
+ * An error rendered in Stripe's exact wire shape:
+ *
+ * ```
+ * { "error": { "type": ..., "code": ..., "message": ..., "param": ..., "doc_url": ... } }
+ * ```
+ *
+ * Thrown from anywhere in a handler; the StatusPages plugin renders it with the
+ * right HTTP status.
+ */
+class StripeException(
+    val status: HttpStatusCode,
+    val type: StripeErrorType,
+    override val message: String,
+    val code: String? = null,
+    val declineCode: String? = null,
+    val param: String? = null,
+    val docUrl: String? = null,
+    /** For card errors raised during confirm, Stripe embeds the PaymentIntent. */
+    val paymentIntent: JsonObject? = null,
+    val paymentMethod: JsonObject? = null,
+) : RuntimeException(message) {
+
+    fun toJson(): JsonObject = buildJsonObject {
+        put("error", buildJsonObject {
+            put("type", type.wire)
+            if (code != null) put("code", code)
+            if (declineCode != null) put("decline_code", declineCode)
+            put("message", message)
+            if (param != null) put("param", param)
+            if (docUrl != null) put("doc_url", docUrl)
+            if (paymentIntent != null) put("payment_intent", paymentIntent)
+            if (paymentMethod != null) put("payment_method", paymentMethod)
+        })
+    }
+
+    companion object {
+        /** No such object with that id (Stripe returns 404 + invalid_request_error). */
+        fun resourceMissing(resource: String, id: String, param: String = "id") = StripeException(
+            status = HttpStatusCode.NotFound,
+            type = StripeErrorType.INVALID_REQUEST_ERROR,
+            code = "resource_missing",
+            message = "No such $resource: '$id'",
+            param = param,
+        )
+
+        fun missingParam(param: String) = StripeException(
+            status = HttpStatusCode.BadRequest,
+            type = StripeErrorType.INVALID_REQUEST_ERROR,
+            code = "parameter_missing",
+            message = "Missing required param: $param.",
+            param = param,
+        )
+
+        fun invalidRequest(message: String, param: String? = null, code: String? = null) = StripeException(
+            status = HttpStatusCode.BadRequest,
+            type = StripeErrorType.INVALID_REQUEST_ERROR,
+            code = code,
+            message = message,
+            param = param,
+        )
+
+        /** No/blank API key (Stripe returns 401 + authentication_error). */
+        fun authenticationError() = StripeException(
+            status = HttpStatusCode.Unauthorized,
+            type = StripeErrorType.AUTHENTICATION_ERROR,
+            message = "You did not provide an API key. You need to provide your API key in the " +
+                "Authorization header, using Bearer auth (e.g. 'Authorization: Bearer sk_test_...').",
+        )
+    }
+}

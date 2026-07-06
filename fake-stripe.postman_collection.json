@@ -1,0 +1,759 @@
+{
+  "info": {
+    "_postman_id": "f4ke57ri-pe00-4c01-9a11-fakestr1pe001",
+    "name": "fake-stripe (local simulator)",
+    "description": "Postman collection for the fake-stripe simulator (Ktor, http://localhost:12111).\n\nRequests are `application/x-www-form-urlencoded` with Stripe bracket notation (`metadata[k]=v`, `card[number]=…`, `expand[]=customer`) and JSON responses in Stripe's object shapes.\n\n## How to use\n1. Start the server: `./gradlew run` or `docker compose up --build`.\n2. Import this file into Postman.\n3. Run the whole collection with the **Collection Runner** (top-to-bottom) — requests chain IDs through collection variables (`customerId`, `pmId`, `paymentIntentId`, `chargeId`, …), so a full customer → payment-method → payment-intent → charge lifecycle runs in order.\n\nAuth: the simulator ignores the API key, but a Bearer token (`{{apiKey}}`) is sent on every request to mirror real Stripe.\n\nVariables live at the collection level (see the **Variables** tab) and are overwritten by test scripts as objects are created.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{apiKey}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:12111" },
+    { "key": "apiKey", "value": "sk_test_fake_stripe_123" },
+    { "key": "customerId", "value": "" },
+    { "key": "pmId", "value": "" },
+    { "key": "paymentIntentId", "value": "" },
+    { "key": "chargeId", "value": "" },
+    { "key": "piNoCardId", "value": "" },
+    { "key": "piUnconfirmedId", "value": "" },
+    { "key": "manualPiId", "value": "" },
+    { "key": "cancelPiId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Liveness (GET /healthz)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/healthz", "host": ["{{baseUrl}}"], "path": ["healthz"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Service info (GET /)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('is fake-stripe', () => pm.expect(pm.response.json().service).to.eql('fake-stripe'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "World health (GET /v1/admin/health)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/admin/health", "host": ["{{baseUrl}}"], "path": ["v1", "admin", "health"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('reports counts', () => { pm.expect(j).to.have.property('customers'); pm.expect(j).to.have.property('charges'); });"
+            ] } }
+          ]
+        },
+        {
+          "name": "Reset world (POST /v1/admin/reset?seed=42)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": { "mode": "urlencoded", "urlencoded": [] },
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/reset?seed=42",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "admin", "reset"],
+              "query": [{ "key": "seed", "value": "42" }]
+            },
+            "description": "Wipes and re-seeds the world deterministically. Same seed => identical objects, down to their IDs."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('reset echoed', () => { pm.expect(j.object).to.eql('admin.reset'); pm.expect(j.seed).to.eql(42); });"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Create customer",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "email", "value": "jane@example.com", "type": "text" },
+                { "key": "name", "value": "Jane Doe", "type": "text" },
+                { "key": "description", "value": "Created from Postman", "type": "text" },
+                { "key": "phone", "value": "+15555550123", "type": "text" },
+                { "key": "metadata[order_id]", "value": "6735", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/customers", "host": ["{{baseUrl}}"], "path": ["v1", "customers"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('customer id', () => pm.expect(j.id).to.match(/^cus_/));",
+              "pm.collectionVariables.set('customerId', j.id);",
+              "console.log('customerId =', j.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Retrieve customer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/customers/{{customerId}}", "host": ["{{baseUrl}}"], "path": ["v1", "customers", "{{customerId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('right customer', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('customerId')));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Update customer",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "name", "value": "Jane Q. Doe", "type": "text" },
+                { "key": "metadata[tier]", "value": "gold", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/customers/{{customerId}}", "host": ["{{baseUrl}}"], "path": ["v1", "customers", "{{customerId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('name updated', () => pm.expect(pm.response.json().name).to.eql('Jane Q. Doe'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List customers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/customers?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "customers"],
+              "query": [
+                { "key": "limit", "value": "10" },
+                { "key": "email", "value": "jane@example.com", "disabled": true },
+                { "key": "starting_after", "value": "cus_...", "disabled": true }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('is a list', () => pm.expect(pm.response.json().object).to.eql('list'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List customer's payment methods",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/customers/{{customerId}}/payment_methods", "host": ["{{baseUrl}}"], "path": ["v1", "customers", "{{customerId}}", "payment_methods"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('is a list', () => pm.expect(pm.response.json().object).to.eql('list'));"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payment Methods",
+      "item": [
+        {
+          "name": "Create payment method (raw card number)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "type", "value": "card", "type": "text" },
+                { "key": "card[number]", "value": "4242424242424242", "type": "text" },
+                { "key": "card[exp_month]", "value": "12", "type": "text" },
+                { "key": "card[exp_year]", "value": "2034", "type": "text" },
+                { "key": "billing_details[name]", "value": "Jane Doe", "type": "text" },
+                { "key": "billing_details[email]", "value": "jane@example.com", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_methods", "host": ["{{baseUrl}}"], "path": ["v1", "payment_methods"] },
+            "description": "You can pass a raw PAN (card[number]) OR a shared test token (card[token]=tok_visa)."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('pm id', () => pm.expect(j.id).to.match(/^pm_/));",
+              "pm.collectionVariables.set('pmId', j.id);",
+              "console.log('pmId =', j.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create payment method (test token)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "type", "value": "card", "type": "text" },
+                { "key": "card[token]", "value": "pm_card_visa", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_methods", "host": ["{{baseUrl}}"], "path": ["v1", "payment_methods"] },
+            "description": "Create a PaymentMethod from a shared test token. This simulator resolves `pm_card_*` tokens (pm_card_visa, pm_card_mastercard, pm_card_chargeDeclined, pm_card_authenticationRequired, …) to a card number — it does not accept Stripe's `tok_*` tokens."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('pm id', () => pm.expect(pm.response.json().id).to.match(/^pm_/));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Retrieve payment method",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/payment_methods/{{pmId}}", "host": ["{{baseUrl}}"], "path": ["v1", "payment_methods", "{{pmId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Update payment method",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "billing_details[name]", "value": "Jane Q. Doe", "type": "text" },
+                { "key": "metadata[note]", "value": "primary card", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_methods/{{pmId}}", "host": ["{{baseUrl}}"], "path": ["v1", "payment_methods", "{{pmId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Attach payment method to customer",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "customer", "value": "{{customerId}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_methods/{{pmId}}/attach", "host": ["{{baseUrl}}"], "path": ["v1", "payment_methods", "{{pmId}}", "attach"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('attached', () => pm.expect(pm.response.json().customer).to.eql(pm.collectionVariables.get('customerId')));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List payment methods (by customer)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment_methods?customer={{customerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "payment_methods"],
+              "query": [{ "key": "customer", "value": "{{customerId}}" }]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('is a list', () => pm.expect(pm.response.json().object).to.eql('list'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Detach payment method",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": { "mode": "urlencoded", "urlencoded": [] },
+            "url": { "raw": "{{baseUrl}}/v1/payment_methods/{{pmId}}/detach", "host": ["{{baseUrl}}"], "path": ["v1", "payment_methods", "{{pmId}}", "detach"] },
+            "description": "Detaches from its customer. NOTE: runs in the runner sequence after attach — re-attach if you need it linked for later manual tests."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('customer cleared', () => pm.expect(pm.response.json().customer).to.eql(null));"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payment Intents",
+      "item": [
+        {
+          "name": "Create PI (no card) -> requires_payment_method",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "2000", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('requires_payment_method', () => pm.expect(j.status).to.eql('requires_payment_method'));",
+              "pm.collectionVariables.set('piNoCardId', j.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Update PI (attach card) -> requires_confirmation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "payment_method", "value": "pm_card_visa", "type": "text" },
+                { "key": "description", "value": "adding a card via update", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents/{{piNoCardId}}", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents", "{{piNoCardId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('requires_confirmation', () => pm.expect(pm.response.json().status).to.eql('requires_confirmation'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create PI (card, unconfirmed) -> requires_confirmation",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "1500", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" },
+                { "key": "payment_method", "value": "pm_card_visa", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('requires_confirmation', () => pm.expect(j.status).to.eql('requires_confirmation'));",
+              "pm.collectionVariables.set('piUnconfirmedId', j.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Confirm PI -> succeeded",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": { "mode": "urlencoded", "urlencoded": [] },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents/{{piUnconfirmedId}}/confirm", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents", "{{piUnconfirmedId}}", "confirm"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('succeeded', () => pm.expect(pm.response.json().status).to.eql('succeeded'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create + confirm PI (auto capture) -> succeeded",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "2000", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" },
+                { "key": "payment_method", "value": "pm_card_visa", "type": "text" },
+                { "key": "confirm", "value": "true", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('succeeded', () => pm.expect(j.status).to.eql('succeeded'));",
+              "pm.test('amount_received set', () => pm.expect(j.amount_received).to.eql(2000));",
+              "pm.collectionVariables.set('paymentIntentId', j.id);",
+              "if (j.latest_charge) { pm.collectionVariables.set('chargeId', j.latest_charge); console.log('chargeId =', j.latest_charge); }"
+            ] } }
+          ]
+        },
+        {
+          "name": "Retrieve PI (expand[]=customer,latest_charge)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment_intents/{{paymentIntentId}}?expand[]=customer&expand[]=latest_charge",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "payment_intents", "{{paymentIntentId}}"],
+              "query": [
+                { "key": "expand[]", "value": "customer" },
+                { "key": "expand[]", "value": "latest_charge" }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('customer expanded to object', () => pm.expect(pm.response.json().customer).to.be.an('object'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create + confirm PI (manual capture) -> requires_capture",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "3200", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" },
+                { "key": "payment_method", "value": "pm_card_visa", "type": "text" },
+                { "key": "capture_method", "value": "manual", "type": "text" },
+                { "key": "confirm", "value": "true", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('requires_capture', () => pm.expect(j.status).to.eql('requires_capture'));",
+              "pm.test('amount_capturable set', () => pm.expect(j.amount_capturable).to.eql(3200));",
+              "pm.collectionVariables.set('manualPiId', j.id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Capture PI -> succeeded",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": { "mode": "urlencoded", "urlencoded": [] },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents/{{manualPiId}}/capture", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents", "{{manualPiId}}", "capture"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('succeeded', () => pm.expect(pm.response.json().status).to.eql('succeeded'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create + confirm PI (declined) -> 402 card_error",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "2000", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" },
+                { "key": "payment_method", "value": "pm_card_chargeDeclined", "type": "text" },
+                { "key": "confirm", "value": "true", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] },
+            "description": "A declined card returns HTTP 402 with a card_error whose `payment_intent` is embedded — exactly like real Stripe. Try `pm_card_chargeDeclinedInsufficientFunds`, `...LostCard`, `...ExpiredCard`, `...IncorrectCvc` for other decline_codes."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('402 Payment Required', () => pm.response.to.have.status(402));",
+              "const j = pm.response.json();",
+              "pm.test('card_error', () => pm.expect(j.error.type).to.eql('card_error'));",
+              "pm.test('embeds payment_intent', () => pm.expect(j.error.payment_intent).to.be.an('object'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create + confirm PI (3DS) -> requires_action",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "2000", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" },
+                { "key": "payment_method", "value": "pm_card_authenticationRequired", "type": "text" },
+                { "key": "confirm", "value": "true", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] },
+            "description": "3-D Secure card lands in requires_action. NOTE: this build has no completion endpoint to walk it to succeeded (see README limitations)."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('requires_action', () => pm.expect(pm.response.json().status).to.eql('requires_action'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create PI to cancel",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "amount", "value": "500", "type": "text" },
+                { "key": "currency", "value": "usd", "type": "text" },
+                { "key": "customer", "value": "{{customerId}}", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set('cancelPiId', pm.response.json().id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Cancel PI -> canceled",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "cancellation_reason", "value": "requested_by_customer", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/payment_intents/{{cancelPiId}}/cancel", "host": ["{{baseUrl}}"], "path": ["v1", "payment_intents", "{{cancelPiId}}", "cancel"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('canceled', () => pm.expect(pm.response.json().status).to.eql('canceled'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "List payment intents (by customer)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment_intents?customer={{customerId}}&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "payment_intents"],
+              "query": [
+                { "key": "customer", "value": "{{customerId}}" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('is a list', () => pm.expect(pm.response.json().object).to.eql('list'));"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Charges",
+      "item": [
+        {
+          "name": "List charges (by customer)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/charges?customer={{customerId}}&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "charges"],
+              "query": [
+                { "key": "customer", "value": "{{customerId}}" },
+                { "key": "payment_intent", "value": "{{paymentIntentId}}", "disabled": true },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const j = pm.response.json();",
+              "pm.test('is a list', () => pm.expect(j.object).to.eql('list'));",
+              "if (j.data && j.data.length && !pm.collectionVariables.get('chargeId')) { pm.collectionVariables.set('chargeId', j.data[0].id); }"
+            ] } }
+          ]
+        },
+        {
+          "name": "Retrieve charge",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/charges/{{chargeId}}", "host": ["{{baseUrl}}"], "path": ["v1", "charges", "{{chargeId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('is a charge', () => pm.expect(pm.response.json().object).to.eql('charge'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Update charge (metadata)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "metadata[reviewed]", "value": "true", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/v1/charges/{{chargeId}}", "host": ["{{baseUrl}}"], "path": ["v1", "charges", "{{chargeId}}"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Errors (Stripe-shaped)",
+      "item": [
+        {
+          "name": "Retrieve missing customer -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/customers/cus_does_not_exist", "host": ["{{baseUrl}}"], "path": ["v1", "customers", "cus_does_not_exist"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+              "pm.test('invalid_request_error', () => pm.expect(pm.response.json().error.type).to.eql('invalid_request_error'));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create customer missing/unknown URL -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/nonsense", "host": ["{{baseUrl}}"], "path": ["v1", "nonsense"] }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+              "pm.test('unrecognized URL', () => pm.expect(pm.response.json().error.message).to.include('Unrecognized request URL'));"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cleanup (optional)",
+      "item": [
+        {
+          "name": "Delete customer",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/v1/customers/{{customerId}}", "host": ["{{baseUrl}}"], "path": ["v1", "customers", "{{customerId}}"] },
+            "description": "Soft-deletes the customer and detaches its payment methods. Runs last so it doesn't break the flow above."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('deleted', () => pm.expect(pm.response.json().deleted).to.eql(true));"
+            ] } }
+          ]
+        }
+      ]
+    }
+  ]
+}
