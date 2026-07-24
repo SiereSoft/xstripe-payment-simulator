@@ -178,6 +178,8 @@ object PaymentIntentMachine {
             pi.amountCapturable = 0
             pi.amountReceived = pi.amount
         }
+        store.recordEvent("charge.succeeded", store.chargeJson(charge))
+        if (pi.status == Status.SUCCEEDED) store.recordEvent("payment_intent.succeeded", pi.toApiJson())
     }
 
     private fun settleDecline(
@@ -211,6 +213,8 @@ object PaymentIntentMachine {
             put("doc_url", docUrl)
             put("payment_method", pm.toApiJson())
         }
+        store.recordEvent("charge.failed", store.chargeJson(charge))
+        store.recordEvent("payment_intent.payment_failed", pi.toApiJson())
         // Real Stripe raises a 402 card_error whose `payment_intent` is the updated PI.
         throw StripeException(
             status = HttpStatusCode.PaymentRequired,

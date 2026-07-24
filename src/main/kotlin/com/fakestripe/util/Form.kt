@@ -56,6 +56,21 @@ class StripeParams(private val entries: List<Pair<String, String>>) {
         return indexed.sortedBy { it.first }.map { it.second }
     }
 
+    /**
+     * Values for a nested array of maps, e.g. `items[0][price]=..&items[0][quantity]=..`
+     * -> a list (index-ordered) of {price:.., quantity:..} maps. Used by subscriptions.
+     */
+    fun indexedSubMaps(key: String): List<Map<String, String>> {
+        val re = Regex("^${Regex.escape(key)}\\[(\\d+)\\]\\[([^\\]]+)\\]$")
+        val byIndex = sortedMapOf<Int, MutableMap<String, String>>()
+        for ((k, v) in entries) {
+            val m = re.matchEntire(k) ?: continue
+            val idx = m.groupValues[1].toInt()
+            byIndex.getOrPut(idx) { LinkedHashMap() }[m.groupValues[2]] = v
+        }
+        return byIndex.values.toList()
+    }
+
     val expand: Set<String> get() = list("expand").toSet()
 
     companion object {
@@ -66,5 +81,23 @@ class StripeParams(private val entries: List<Pair<String, String>>) {
             }
             return StripeParams(list)
         }
+
+        /**
+         * Parse a raw urlencoded body string. Used when the body was read earlier
+         * (e.g. to fingerprint an idempotent request) and can't be received again.
+         */
+        fun fromBody(body: String): StripeParams {
+            if (body.isBlank()) return StripeParams(emptyList())
+            val list = body.split("&").mapNotNull { pair ->
+                if (pair.isEmpty()) return@mapNotNull null
+                val eq = pair.indexOf('=')
+                val (k, v) = if (eq < 0) pair to "" else pair.substring(0, eq) to pair.substring(eq + 1)
+                decode(k) to decode(v)
+            }
+            return StripeParams(list)
+        }
+
+        private fun decode(s: String): String =
+            java.net.URLDecoder.decode(s, Charsets.UTF_8.name())
     }
 }

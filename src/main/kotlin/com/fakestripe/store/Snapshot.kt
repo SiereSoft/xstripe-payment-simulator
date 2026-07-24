@@ -1,9 +1,17 @@
 package com.fakestripe.store
 
+import com.fakestripe.model.BillingPortalSession
 import com.fakestripe.model.Charge
+import com.fakestripe.model.CheckoutSession
 import com.fakestripe.model.Customer
 import com.fakestripe.model.PaymentIntent
+import com.fakestripe.model.Event
+import com.fakestripe.model.Invoice
 import com.fakestripe.model.PaymentMethod
+import com.fakestripe.model.Price
+import com.fakestripe.model.Product
+import com.fakestripe.model.Refund
+import com.fakestripe.model.Subscription
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -26,6 +34,16 @@ private data class StoreSnapshot(
     val paymentMethods: List<PaymentMethod>,
     val paymentIntents: List<PaymentIntent>,
     val charges: List<Charge>,
+    // Defaults keep older snapshots (written before these objects existed) loadable.
+    val refunds: List<Refund> = emptyList(),
+    val products: List<Product> = emptyList(),
+    val prices: List<Price> = emptyList(),
+    val subscriptions: List<Subscription> = emptyList(),
+    val invoices: List<Invoice> = emptyList(),
+    val checkoutSessions: List<CheckoutSession> = emptyList(),
+    val portalSessions: List<BillingPortalSession> = emptyList(),
+    val events: List<Event> = emptyList(),
+    val idempotency: Map<String, IdempotencyRecord> = emptyMap(),
 )
 
 object Snapshot {
@@ -41,6 +59,15 @@ object Snapshot {
                 paymentMethods = store.paymentMethods.values.toList(),
                 paymentIntents = store.paymentIntents.values.toList(),
                 charges = store.charges.values.toList(),
+                refunds = store.refunds.values.toList(),
+                products = store.products.values.toList(),
+                prices = store.prices.values.toList(),
+                subscriptions = store.subscriptions.values.toList(),
+                invoices = store.invoices.values.toList(),
+                checkoutSessions = store.checkoutSessions.values.toList(),
+                portalSessions = store.portalSessions.values.toList(),
+                events = store.events.values.toList(),
+                idempotency = store.idempotency.toMap(),
             )
             path.parent?.let { Files.createDirectories(it) }
             val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
@@ -60,6 +87,15 @@ object Snapshot {
                 snap.paymentMethods.forEach { paymentMethods[it.id] = it }
                 snap.paymentIntents.forEach { paymentIntents[it.id] = it }
                 snap.charges.forEach { charges[it.id] = it }
+                snap.refunds.forEach { refunds[it.id] = it }
+                snap.products.forEach { products[it.id] = it }
+                snap.prices.forEach { prices[it.id] = it }
+                snap.subscriptions.forEach { subscriptions[it.id] = it }
+                snap.invoices.forEach { invoices[it.id] = it }
+                snap.checkoutSessions.forEach { checkoutSessions[it.id] = it }
+                snap.portalSessions.forEach { portalSessions[it.id] = it }
+                snap.events.forEach { events[it.id] = it }
+                idempotency.putAll(snap.idempotency)
             }
         } catch (e: Exception) {
             log.warn("Failed to load snapshot from {}: {}. Starting fresh.", path, e.message)

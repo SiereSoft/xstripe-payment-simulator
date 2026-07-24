@@ -88,5 +88,14 @@ class StripeException(
             message = "You did not provide an API key. You need to provide your API key in the " +
                 "Authorization header, using Bearer auth (e.g. 'Authorization: Bearer sk_test_...').",
         )
+
+        /** Same Idempotency-Key reused with a different request body. */
+        fun idempotencyError(key: String) = StripeException(
+            status = HttpStatusCode.BadRequest,
+            type = StripeErrorType.IDEMPOTENCY_ERROR,
+            message = "Keys for idempotent requests can only be used with the same parameters they " +
+                "were first used with. Try using a key other than '$key' if you meant to execute a " +
+                "different request.",
+        )
     }
 }

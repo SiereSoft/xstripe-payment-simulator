@@ -12,7 +12,7 @@ fun Route.chargeRoutes(sim: Simulator) {
     get("/v1/charges/{id}") {
         val id = call.parameters["id"]!!
         val params = call.queryParams()
-        val json = sim.read { store -> store.expand(store.requireCharge(id).toApiJson(), params) }
+        val json = sim.read { store -> store.expand(store.chargeJson(store.requireCharge(id)), params) }
         call.respondStripe(json)
     }
 
@@ -23,7 +23,7 @@ fun Route.chargeRoutes(sim: Simulator) {
         val json = sim.write { store ->
             val charge = store.requireCharge(id)
             params.subMap("metadata").forEach { (k, v) -> if (v.isEmpty()) charge.metadata.remove(k) else charge.metadata[k] = v }
-            store.expand(charge.toApiJson(), params)
+            store.expand(store.chargeJson(charge), params)
         }
         call.respondStripe(json)
     }
@@ -38,7 +38,7 @@ fun Route.chargeRoutes(sim: Simulator) {
                 (customer == null || it.customer == customer) &&
                     (paymentIntent == null || it.paymentIntent == paymentIntent)
             }
-            store.paginated(all, "/v1/charges", params, { it.id }, { it.created }, { it.toApiJson() })
+            store.paginated(all, "/v1/charges", params, { it.id }, { it.created }, { store.chargeJson(it) })
         }
         call.respondStripe(json)
     }

@@ -1,6 +1,7 @@
 package com.fakestripe.store
 
 import com.fakestripe.seed.Seeder
+import com.fakestripe.webhook.WebhookDispatcher
 import java.nio.file.Path
 
 /**
@@ -16,6 +17,7 @@ import java.nio.file.Path
 class Simulator(
     @Volatile var store: DataStore,
     private val dataPath: Path,
+    val webhooks: WebhookDispatcher = WebhookDispatcher(null, "whsec_test"),
 ) {
     private val lock = Any()
 
@@ -28,7 +30,22 @@ class Simulator(
             block(store)
         } finally {
             Snapshot.save(store, dataPath)
+            drainEvents()
         }
+    }
+
+    /** Hand any events emitted during the write to the webhook dispatcher. */
+    private fun drainEvents() {
+        if (store.pendingEvents.isEmpty()) return
+        val toDeliver = store.pendingEvents.toList()
+        store.pendingEvents.clear()
+        toDeliver.forEach { webhooks.deliver(it) }
+    }
+
+    /** Point webhook delivery at a URL (with optional secret) at runtime. */
+    fun configureWebhook(url: String?, secret: String?) {
+        if (url != null) webhooks.url = url
+        if (secret != null) webhooks.secret = secret
     }
 
     fun reset(seed: Long) {
@@ -40,15 +57,30 @@ class Simulator(
 
     val seed: Long get() = synchronized(lock) { store.seed }
 
+    /** Idempotency: look up a prior response by key. */
+    fun idempotencyLookup(key: String): IdempotencyRecord? = synchronized(lock) { store.idempotency[key] }
+
+    /** Idempotency: remember the response for a key so repeats replay it. */
+    fun recordIdempotency(key: String, fingerprint: String, status: Int, body: String) {
+        synchronized(lock) {
+            store.idempotency[key] = IdempotencyRecord(fingerprint, status, body)
+            Snapshot.save(store, dataPath)
+        }
+    }
+
     companion object {
         /**
          * Load the snapshot if present; otherwise build a fresh seeded world.
          * This is what gives "create a customer -> he's still there after restart".
          */
-        fun boot(dataPath: Path, defaultSeed: Long): Simulator {
+        fun boot(
+            dataPath: Path,
+            defaultSeed: Long,
+            webhooks: WebhookDispatcher = WebhookDispatcher(null, "whsec_test"),
+        ): Simulator {
             val loaded = Snapshot.load(dataPath)
             val store = loaded ?: Seeder.build(defaultSeed)
-            val sim = Simulator(store, dataPath)
+            val sim = Simulator(store, dataPath, webhooks)
             if (loaded == null) Snapshot.save(store, dataPath)
             return sim
         }

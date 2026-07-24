@@ -1,5 +1,6 @@
 package com.fakestripe.routes
 
+import com.fakestripe.billing.BillingOps
 import com.fakestripe.model.Customer
 import com.fakestripe.store.Simulator
 import io.ktor.server.application.call
@@ -28,6 +29,7 @@ fun Route.customerRoutes(sim: Simulator) {
                 customer.defaultPaymentMethod = it
             }
             store.customers[customer.id] = customer
+            store.recordEvent("customer.created", customer.toApiJson())
             store.expand(customer.toApiJson(), params)
         }
         call.respondStripe(json)
@@ -64,8 +66,15 @@ fun Route.customerRoutes(sim: Simulator) {
         val json = sim.write { store ->
             val c = store.requireCustomer(id)
             c.deleted = true
+            // Stripe: "Also immediately cancels any active subscriptions on the customer."
+            // Without this an erased account keeps billing — the exact failure an
+            // erasure path exists to prevent, and one a test here would never catch.
+            store.subscriptions.values
+                .filter { it.customer == id && !BillingOps.isTerminal(it) }
+                .forEach { BillingOps.cancelSubscription(store, it, atPeriodEnd = false) }
             // Detach the customer's payment methods.
             store.paymentMethods.values.filter { it.customer == id }.forEach { it.customer = null }
+            c.defaultPaymentMethod = null
             c.toDeletedJson()
         }
         call.respondStripe(json)

@@ -5,9 +5,15 @@ import com.stripe.Stripe
 import com.stripe.exception.CardException
 import com.stripe.model.Customer
 import com.stripe.model.PaymentIntent
+import com.stripe.model.Price
+import com.stripe.model.Product
+import com.stripe.model.checkout.Session
 import com.stripe.param.CustomerCreateParams
 import com.stripe.param.CustomerListParams
 import com.stripe.param.PaymentIntentCreateParams
+import com.stripe.param.PriceCreateParams
+import com.stripe.param.ProductCreateParams
+import com.stripe.param.checkout.SessionCreateParams
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import kotlinx.coroutines.runBlocking
@@ -65,6 +71,40 @@ class StripeJavaSdkTest {
             // List customers
             val list = Customer.list(CustomerListParams.builder().setLimit(3L).build())
             assertTrue(list.data.isNotEmpty())
+
+            // Checkout + customer portal: the SDK must deserialize both session objects,
+            // and the hosted URL has to come back as a usable string.
+            val product = Product.create(ProductCreateParams.builder().setName("Gold Plan").build())
+            val price = Price.create(
+                PriceCreateParams.builder()
+                    .setProduct(product.id)
+                    .setCurrency("usd")
+                    .setUnitAmount(1500L)
+                    .setRecurring(PriceCreateParams.Recurring.builder().setInterval(PriceCreateParams.Recurring.Interval.MONTH).build())
+                    .build(),
+            )
+            val session = Session.create(
+                SessionCreateParams.builder()
+                    .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
+                    .addLineItem(SessionCreateParams.LineItem.builder().setPrice(price.id).setQuantity(1L).build())
+                    .setCustomerEmail("jane@example.com")
+                    .setClientReferenceId("subscriber-42")
+                    .setSuccessUrl("https://example.com/account?checkout=done")
+                    .setCancelUrl("https://example.com/upgrade")
+                    .build(),
+            )
+            assertTrue(session.id.startsWith("cs_"))
+            assertEquals("open", session.status)
+            assertEquals("subscriber-42", session.clientReferenceId)
+            assertTrue(session.url.contains("/checkout/${session.id}"), "hosted url: ${session.url}")
+
+            val portal = com.stripe.model.billingportal.Session.create(
+                com.stripe.param.billingportal.SessionCreateParams.builder()
+                    .setCustomer(customer.id)
+                    .setReturnUrl("https://example.com/account")
+                    .build(),
+            )
+            assertTrue(portal.url.contains("/billing_portal/${portal.id}"), "portal url: ${portal.url}")
 
             // A declined card must raise the SDK's typed CardException
             try {

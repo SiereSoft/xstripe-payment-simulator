@@ -3,6 +3,7 @@ package com.fakestripe.routes
 import com.fakestripe.cards.TestCards
 import com.fakestripe.error.StripeException
 import com.fakestripe.model.PaymentMethod
+import com.fakestripe.statemachine.PaymentIntentMachine
 import com.fakestripe.store.Simulator
 import io.ktor.server.application.call
 import io.ktor.server.routing.Route
@@ -74,7 +75,9 @@ fun Route.paymentMethodRoutes(sim: Simulator) {
         val id = call.parameters["id"]!!
         val params = call.formParams()
         val json = sim.write { store ->
-            val pm = store.requirePaymentMethod(id)
+            // Accept shared test tokens (pm_card_visa, …) too — real Stripe attaches
+            // those in test mode, so materialize them here rather than 404.
+            val pm = PaymentIntentMachine.resolvePaymentMethod(store, id)
             val customerId = params.require("customer")
             store.requireCustomer(customerId)
             pm.customer = customerId

@@ -5,6 +5,8 @@ import com.fakestripe.model.Charge
 import com.fakestripe.model.Customer
 import com.fakestripe.model.PaymentIntent
 import com.fakestripe.model.PaymentMethod
+import com.fakestripe.model.Price
+import com.fakestripe.model.Product
 import com.fakestripe.store.DataStore
 import java.util.Random
 
@@ -66,7 +68,31 @@ object Seeder {
                 seedPaidIntent(store, customer, pm, amount, created + 2 * DAY)
             }
         }
+
+        seedCatalog(store)
         return store
+    }
+
+    /** A tiny Basic/Pro catalog so subscription + upgrade tasks have prices to use. */
+    private fun seedCatalog(store: DataStore) {
+        fun product(name: String) = Product(
+            id = store.newId("prod"), created = ANCHOR, updated = ANCHOR, name = name,
+        ).also { store.products[it.id] = it }
+
+        fun price(product: Product, amount: Long, interval: String, default: Boolean = false) = Price(
+            id = store.newId("price"), created = ANCHOR, product = product.id,
+            currency = "usd", unitAmount = amount, recurringInterval = interval,
+        ).also {
+            store.prices[it.id] = it
+            if (default) product.defaultPrice = it.id
+        }
+
+        val basic = product("Basic Plan")
+        price(basic, 1000, "month", default = true)          // $10 / month
+
+        val pro = product("Pro Plan")
+        price(pro, 3000, "month", default = true)            // $30 / month
+        price(pro, 30000, "year")                            // $300 / year
     }
 
     private fun seedPaidIntent(

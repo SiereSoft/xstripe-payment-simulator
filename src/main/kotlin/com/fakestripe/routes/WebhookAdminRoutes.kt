@@ -1,0 +1,32 @@
+package com.fakestripe.routes
+
+import com.fakestripe.store.Simulator
+import io.ktor.server.application.call
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+/**
+ * Admin endpoints (keyless) to point webhook delivery at a receiver and inspect
+ * the current config. Handy for tasks/tests that verify signed event delivery.
+ */
+fun Route.webhookAdminRoutes(sim: Simulator) {
+
+    post("/v1/admin/webhook") {
+        val params = call.formParams()
+        sim.configureWebhook(params.opt("url"), params.opt("secret"))
+        call.respondStripe(webhookConfig(sim))
+    }
+
+    get("/v1/admin/webhook") {
+        call.respondStripe(webhookConfig(sim))
+    }
+}
+
+private fun webhookConfig(sim: Simulator) = buildJsonObject {
+    put("object", "admin.webhook")
+    put("url", sim.webhooks.url)
+    put("secret", sim.webhooks.secret)
+}

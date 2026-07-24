@@ -2,13 +2,27 @@ package com.fakestripe
 
 import com.fakestripe.error.StripeException
 import com.fakestripe.routes.adminRoutes
+import com.fakestripe.routes.billingPortalRoutes
 import com.fakestripe.routes.chargeRoutes
+import com.fakestripe.routes.checkoutRoutes
 import com.fakestripe.routes.customerRoutes
+import com.fakestripe.routes.CachedBodyKey
+import com.fakestripe.routes.IdempotencyRecorderKey
+import com.fakestripe.routes.eventRoutes
+import com.fakestripe.routes.invoiceRoutes
 import com.fakestripe.routes.paymentIntentRoutes
 import com.fakestripe.routes.paymentMethodRoutes
+import com.fakestripe.routes.priceRoutes
+import com.fakestripe.routes.productRoutes
+import com.fakestripe.routes.refundRoutes
 import com.fakestripe.routes.respondStripe
+import com.fakestripe.routes.subscriptionRoutes
+import com.fakestripe.routes.webhookAdminRoutes
 import com.fakestripe.store.Simulator
+import com.fakestripe.webhook.WebhookDispatcher
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
@@ -22,6 +36,9 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.header
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
+import io.ktor.server.request.receiveText
+import io.ktor.server.response.respondText
+import java.security.MessageDigest
 import java.util.Base64
 import io.ktor.server.routing.Routing
 import io.ktor.server.routing.route
@@ -40,7 +57,11 @@ fun main() {
 fun Application.module() {
     val dataPath = Paths.get(System.getenv("FAKE_STRIPE_DATA") ?: "data/state.json")
     val seed = System.getenv("FAKE_STRIPE_SEED")?.toLongOrNull() ?: 1L
-    module(Simulator.boot(dataPath, seed))
+    val webhooks = WebhookDispatcher(
+        url = System.getenv("FAKE_STRIPE_WEBHOOK_URL"),
+        secret = System.getenv("FAKE_STRIPE_WEBHOOK_SECRET") ?: "whsec_test",
+    )
+    module(Simulator.boot(dataPath, seed, webhooks))
 }
 
 /** Wires the whole API around a given [Simulator]. Tests inject their own. */
@@ -85,15 +106,58 @@ fun Application.module(sim: Simulator) {
         }
     }
 
+    // Idempotency: a POST carrying `Idempotency-Key` replays its first response on
+    // repeat (and errors if the same key is reused with a different body).
+    intercept(ApplicationCallPipeline.Plugins) {
+        val path = call.request.path()
+        val isBusinessPost = call.request.httpMethod == HttpMethod.Post &&
+            path.startsWith("/v1/") && !path.startsWith("/v1/admin/")
+        val key = call.request.header("Idempotency-Key")
+        if (isBusinessPost && !key.isNullOrBlank()) {
+            // Read the body once (so we can fingerprint it) and cache it for the handler.
+            val bodyText = call.receiveText()
+            call.attributes.put(CachedBodyKey, bodyText)
+            val fingerprint = sha256("POST\n$path\n$bodyText")
+
+            val existing = sim.idempotencyLookup(key)
+            if (existing != null) {
+                if (existing.fingerprint == fingerprint) {
+                    call.response.headers.append("Idempotent-Replayed", "true")
+                    call.respondText(existing.body, ContentType.Application.Json, HttpStatusCode.fromValue(existing.status))
+                } else {
+                    val err = StripeException.idempotencyError(key)
+                    call.respondStripe(err.toJson(), err.status)
+                }
+                return@intercept finish()
+            }
+            // First time for this key: record whatever response the handler produces.
+            call.attributes.put(IdempotencyRecorderKey) { status, respBody ->
+                sim.recordIdempotency(key, fingerprint, status, respBody)
+            }
+        }
+    }
+
     routing {
         adminRoutes(sim)
         customerRoutes(sim)
         paymentMethodRoutes(sim)
         paymentIntentRoutes(sim)
         chargeRoutes(sim)
+        refundRoutes(sim)
+        productRoutes(sim)
+        priceRoutes(sim)
+        subscriptionRoutes(sim)
+        invoiceRoutes(sim)
+        checkoutRoutes(sim)
+        billingPortalRoutes(sim)
+        eventRoutes(sim)
+        webhookAdminRoutes(sim)
         unknownUrlFallback()
     }
 }
+
+private fun sha256(input: String): String =
+    MessageDigest.getInstance("SHA-256").digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
 
 /**
  * Extract the API key from an Authorization header. Supports `Bearer sk_...`

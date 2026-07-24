@@ -1,6 +1,7 @@
 package com.fakestripe.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -41,7 +42,7 @@ data class Charge(
     val billingEmail: String? = null,
     val metadata: MutableMap<String, String> = LinkedHashMap(),
 ) {
-    fun toApiJson(): JsonObject = buildJsonObject {
+    fun toApiJson(refunds: List<JsonObject> = emptyList()): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "charge")
         put("amount", amount)
@@ -84,6 +85,13 @@ data class Charge(
                 put("mandate", JsonNull)
                 put("wallet", JsonNull)
             })
+        })
+        put("refunds", buildJsonObject {
+            put("object", "list")
+            put("has_more", false)
+            put("total_count", refunds.size)
+            put("url", "/v1/charges/$id/refunds")
+            put("data", JsonArray(refunds))
         })
         putMetadata(metadata)
     }
