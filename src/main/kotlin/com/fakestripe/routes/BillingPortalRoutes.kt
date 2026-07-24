@@ -8,6 +8,7 @@ import com.fakestripe.hosted.page
 import com.fakestripe.model.BillingPortalSession
 import com.fakestripe.store.DataStore
 import com.fakestripe.store.Simulator
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.routing.Route
@@ -48,8 +49,12 @@ fun Route.billingPortalRoutes(sim: Simulator) {
     get("/billing_portal/{id}") {
         val id = call.parameters["id"]!!
         val html = sim.read { store ->
-            store.portalSessions[id]?.let { portalPage(store, it, call.request.queryParameters["notice"]) }
+            store.portalSessions[id]?.let { portalPage(store, it) }
         }
+        // The page renders only current subscription state, and no-store stops the browser's
+        // back/forward cache from replaying a stale cancel snapshot after a renew (or vice
+        // versa) — the contradictory state a real hosted portal never shows.
+        call.response.headers.append(HttpHeaders.CacheControl, "no-store")
         if (html == null) call.respondHtml(missingPage("billing portal session"), HttpStatusCode.NotFound)
         else call.respondHtml(html)
     }
@@ -75,16 +80,17 @@ fun Route.billingPortalRoutes(sim: Simulator) {
                 else -> "Unknown action."
             }
         }
+        // Redirect to the bare portal URL — never a per-action ?notice=. A distinct URL per
+        // action is exactly what lets Back walk into a stale, contradictory state; one URL that
+        // always shows current state cannot. The button + "ends/renews on" line is the feedback.
         if (notice == null) call.respondHtml(missingPage("billing portal session"), HttpStatusCode.NotFound)
-        else call.seeOther("/billing_portal/$id?notice=" + java.net.URLEncoder.encode(notice, "UTF-8"))
+        else call.seeOther("/billing_portal/$id")
     }
 }
 
-private fun portalPage(store: DataStore, session: BillingPortalSession, notice: String?): String {
+private fun portalPage(store: DataStore, session: BillingPortalSession): String {
     val customer = store.customers[session.customer]
     val body = StringBuilder()
-
-    if (notice != null) body.append("<div class=\"note\" style=\"margin:0 0 18px\">${esc(notice)}</div>")
 
     body.append("<h1>Manage billing</h1>")
     body.append("<p class=\"muted\">${esc(customer?.email ?: session.customer)}</p>")
