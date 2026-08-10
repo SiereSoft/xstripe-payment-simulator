@@ -26,7 +26,7 @@ So we built the world.
 **Siere Payments Gym** is a stateful simulator of Stripe's payments core, written in Kotlin (Ktor), shipped as a container. One command:
 
 ```bash
-docker compose up --build      # API on http://localhost:12111
+docker compose up --build      # actor API on :12111, host-only controller on :12112
 ```
 
 It covers the payments core end to end:
@@ -40,7 +40,7 @@ And the two things a mock won't give you:
 
 **It remembers.** Create a customer, restart the container, and he's still there. State lives in memory and snapshots to disk on every mutation.
 
-**It's reproducible.** `POST /v1/admin/reset?seed=42` builds the same customers, saved cards, and payment history every time — down to the object IDs. That determinism is the whole point of a training environment.
+**It's reproducible.** A controller call to `POST http://localhost:12112/v1/admin/reset?seed=42` builds the same customers, saved cards, and payment history every time — down to the object IDs. The Android-facing API has no reset route. That determinism and separation are the whole point of a training environment.
 
 ## The test we care about
 

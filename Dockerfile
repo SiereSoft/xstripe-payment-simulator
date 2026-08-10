@@ -15,11 +15,13 @@ COPY --from=build /app/build/install/fake-stripe ./
 
 ENV PORT=12111 \
     HOST=0.0.0.0 \
+    CONTROL_PORT=12112 \
+    CONTROL_HOST=127.0.0.1 \
     FAKE_STRIPE_SEED=1 \
     FAKE_STRIPE_DATA=/data/state.json
 
 # State snapshot lives here so it survives container restarts.
 VOLUME ["/data"]
-EXPOSE 12111
+EXPOSE 12111 12112
 
 ENTRYPOINT ["./bin/fake-stripe"]

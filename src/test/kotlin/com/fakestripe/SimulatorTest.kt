@@ -121,9 +121,11 @@ class SimulatorTest {
     }
 
     @Test
-    fun `admin endpoints do not require a key`() = testApplication {
-        application { module(newSim()) }
-        val res = client.get("/v1/admin/health")
+    fun `admin endpoints use controller token instead of API key`() = testApplication {
+        application { module(newSim(), controlToken = "controller-test-token") }
+        val res = client.get("/v1/admin/health") {
+            headers.append("X-Siere-Control-Token", "controller-test-token")
+        }
         assertEquals(HttpStatusCode.OK, res.status)
     }
 

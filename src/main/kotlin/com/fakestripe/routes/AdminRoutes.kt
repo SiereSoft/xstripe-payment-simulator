@@ -26,22 +26,27 @@ import java.security.MessageDigest
  *   - POST /v1/admin/reset?seed=N&scenario=ID persist a deterministic task world
  *   - POST /v1/admin/clock/advance?seconds=N advance privileged manual time
  */
-fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
-
+fun Route.serviceRoutes(sim: Simulator, includeServiceInfo: Boolean) {
     get("/healthz") {
         call.respondStripe(buildJsonObject { put("status", "ok") })
     }
 
-    get("/") {
-        call.respondStripe(buildJsonObject {
-            put("service", "fake-stripe")
-            put("version", "0.1.0")
-            put("description", "A stateful Stripe payments-core simulator. See README.md.")
-            put("seed", sim.seed)
-        })
+    if (includeServiceInfo) {
+        get("/") {
+            call.respondStripe(buildJsonObject {
+                put("service", "fake-stripe")
+                put("version", "0.1.0")
+                put("description", "A stateful Stripe payments-core simulator. See README.md.")
+                put("seed", sim.seed)
+            })
+        }
     }
+}
+
+fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
 
     get("/v1/admin/health") {
+        if (!call.requireController(controlToken)) return@get
         call.respondStripe(sim.read { store ->
             buildJsonObject {
                 put("status", "ok")
@@ -95,13 +100,19 @@ fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
         })
     }
 
-    post("/v1/admin/reset") { handleReset(sim, call) }
-    get("/v1/admin/reset") { handleReset(sim, call) }
+    post("/v1/admin/reset") {
+        if (!call.requireController(controlToken)) return@post
+        handleReset(sim, call)
+    }
+    get("/v1/admin/reset") {
+        if (!call.requireController(controlToken)) return@get
+        handleReset(sim, call)
+    }
 }
 
 private const val CONTROL_TOKEN_HEADER = "X-Siere-Control-Token"
 
-private suspend fun ApplicationCall.requireController(controlToken: String?): Boolean {
+internal suspend fun ApplicationCall.requireController(controlToken: String?): Boolean {
     if (controlToken == null) {
         respondStripe(
             adminError("The control plane is disabled. Set FAKE_STRIPE_CONTROL_TOKEN to enable it."),

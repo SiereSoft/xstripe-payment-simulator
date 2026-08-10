@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "fake-stripe",
-    "description": "Stateful Stripe payments-core simulator. Set {{baseUrl}} and {{apiKey}} (any sk_... value works). Requests are form-encoded like real Stripe. IDs from create calls are captured into collection variables so folders chain.",
+    "description": "Stateful Stripe payments-core simulator. Set {{baseUrl}}, {{controlUrl}}, and {{apiKey}} (any sk_... value works). Requests are form-encoded like real Stripe. IDs from create calls are captured into collection variables so folders chain.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -19,6 +19,10 @@
     {
       "key": "baseUrl",
       "value": "http://localhost:12111"
+    },
+    {
+      "key": "controlUrl",
+      "value": "http://localhost:12112"
     },
     {
       "key": "apiKey",
@@ -104,11 +108,16 @@
           "name": "World summary",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/health",
+              "raw": "{{controlUrl}}/v1/admin/health",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -132,9 +141,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/state",
+              "raw": "{{controlUrl}}/v1/admin/state",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -151,11 +160,16 @@
           "name": "Reset (seed=1)",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/reset?seed=1",
+              "raw": "{{controlUrl}}/v1/admin/reset?seed=1",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -178,11 +192,16 @@
           "name": "Reset duplicate-payments task",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments&clock_mode=manual",
+              "raw": "{{controlUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments&clock_mode=manual",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -220,9 +239,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/clock/advance?seconds=3600",
+              "raw": "{{controlUrl}}/v1/admin/clock/advance?seconds=3600",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -1391,11 +1410,16 @@
           "name": "Renew into next period (admin)",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/subscriptions/{{subscriptionId}}/renew",
+              "raw": "{{controlUrl}}/v1/admin/subscriptions/{{subscriptionId}}/renew",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -1849,11 +1873,16 @@
           "name": "Set webhook URL + secret",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/webhook",
+              "raw": "{{controlUrl}}/v1/admin/webhook",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",
@@ -1883,11 +1912,16 @@
           "name": "Get webhook config",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/webhook",
+              "raw": "{{controlUrl}}/v1/admin/webhook",
               "host": [
-                "{{baseUrl}}"
+                "{{controlUrl}}"
               ],
               "path": [
                 "v1",

@@ -11,6 +11,8 @@
   },
   "variable": [
     { "key": "baseUrl", "value": "http://localhost:12111" },
+    { "key": "controlUrl", "value": "http://localhost:12112" },
+    { "key": "controlToken", "value": "gym_control_local" },
     { "key": "apiKey", "value": "sk_test_fake_stripe_123" },
     { "key": "customerId", "value": "" },
     { "key": "pmId", "value": "" },
@@ -57,8 +59,8 @@
           "name": "World health (GET /v1/admin/health)",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": { "raw": "{{baseUrl}}/v1/admin/health", "host": ["{{baseUrl}}"], "path": ["v1", "admin", "health"] }
+            "header": [{ "key": "X-Siere-Control-Token", "value": "{{controlToken}}" }],
+            "url": { "raw": "{{controlUrl}}/v1/admin/health", "host": ["{{controlUrl}}"], "path": ["v1", "admin", "health"] }
           },
           "event": [
             { "listen": "test", "script": { "type": "text/javascript", "exec": [
@@ -72,11 +74,11 @@
           "name": "Reset world (POST /v1/admin/reset?seed=42)",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [{ "key": "X-Siere-Control-Token", "value": "{{controlToken}}" }],
             "body": { "mode": "urlencoded", "urlencoded": [] },
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/reset?seed=42",
-              "host": ["{{baseUrl}}"],
+              "raw": "{{controlUrl}}/v1/admin/reset?seed=42",
+              "host": ["{{controlUrl}}"],
               "path": ["v1", "admin", "reset"],
               "query": [{ "key": "seed", "value": "42" }]
             },

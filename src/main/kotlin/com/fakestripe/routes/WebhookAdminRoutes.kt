@@ -9,18 +9,20 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Admin endpoints (keyless) to point webhook delivery at a receiver and inspect
- * the current config. Handy for tasks/tests that verify signed event delivery.
+ * Controller endpoints to point webhook delivery at a receiver and inspect the
+ * current config. Handy for tasks/tests that verify signed event delivery.
  */
-fun Route.webhookAdminRoutes(sim: Simulator) {
+fun Route.webhookAdminRoutes(sim: Simulator, controlToken: String?) {
 
     post("/v1/admin/webhook") {
+        if (!call.requireController(controlToken)) return@post
         val params = call.formParams()
         sim.configureWebhook(params.opt("url"), params.opt("secret"))
         call.respondStripe(webhookConfig(sim))
     }
 
     get("/v1/admin/webhook") {
+        if (!call.requireController(controlToken)) return@get
         call.respondStripe(webhookConfig(sim))
     }
 }

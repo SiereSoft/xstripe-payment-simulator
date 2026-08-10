@@ -64,7 +64,9 @@ class SimulatorClockTest {
 
             val resetResponse = client.post(
                 "/v1/admin/reset?seed=42&scenario=duplicate_payments",
-            )
+            ) {
+                header("X-Siere-Control-Token", "controller-test-token")
+            }
             assertEquals(HttpStatusCode.OK, resetResponse.status)
             val reset = body(resetResponse.bodyAsText())
             val startTime = reset["clock"]!!.jsonObject["current_time"]!!.jsonPrimitive.long
@@ -156,12 +158,16 @@ class SimulatorClockTest {
         application { module(simulator, controlToken = "controller-test-token") }
 
         val seedBefore = simulator.seed
-        val invalidMode = client.post("/v1/admin/reset?seed=99&clock_mode=warp")
+        val invalidMode = client.post("/v1/admin/reset?seed=99&clock_mode=warp") {
+            header("X-Siere-Control-Token", "controller-test-token")
+        }
         assertEquals(HttpStatusCode.BadRequest, invalidMode.status)
         assertEquals("clock_mode", errorParam(invalidMode.bodyAsText()))
         assertEquals(seedBefore, simulator.seed)
 
-        val freeReset = client.post("/v1/admin/reset?seed=9&clock_mode=free")
+        val freeReset = client.post("/v1/admin/reset?seed=9&clock_mode=free") {
+            header("X-Siere-Control-Token", "controller-test-token")
+        }
         assertEquals(HttpStatusCode.OK, freeReset.status)
         assertEquals("free", body(freeReset.bodyAsText())["clock"]!!.jsonObject["mode"]!!.jsonPrimitive.content)
         val revisionBefore = simulator.read { it.revision }

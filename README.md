@@ -2,7 +2,7 @@
 
 **A stateful, Stripe-compatible payments API you can run locally — for building, testing, and training AI agents against a payment backend that actually remembers what happened.**
 
-![tests](https://img.shields.io/badge/tests-39%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-42%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![stack](https://img.shields.io/badge/Kotlin-Ktor-7F52FF)
 ![run](https://img.shields.io/badge/run-docker%20compose%20up-2496ED)
@@ -56,24 +56,28 @@ Packaged task definitions + automatic checkers and a worked training/eval exampl
 
 ```bash
 docker compose up --build
-# API now on http://localhost:12111
+# Actor/provider API: http://localhost:12111
+# Host-only controller API: http://localhost:12112
 ```
 
 ### Without Docker (JDK 11+)
 
 ```bash
-./gradlew run          # or: gradle run
-# API on http://localhost:12111
+FAKE_STRIPE_CONTROL_TOKEN=gym_control_local ./gradlew run
+# Actor/provider API: http://localhost:12111
+# Loopback-only controller API: http://localhost:12112
 ```
 
 ### Smoke test
 
 ```bash
 BASE=http://localhost:12111
+CONTROL=http://localhost:12112
+CONTROL_TOKEN="X-Siere-Control-Token: gym_control_local"
 KEY="Authorization: Bearer sk_test_123"   # any sk_... value works
 
-# What's in the seeded world? (admin endpoints need no key)
-curl -s $BASE/v1/admin/health
+# What's in the seeded world? (controller path + controller credential)
+curl -s $CONTROL/v1/admin/health -H "$CONTROL_TOKEN"
 
 # Create a customer and take a payment (business endpoints need a key)
 CUS=$(curl -s -X POST $BASE/v1/customers -H "$KEY" -d email=jane@example.com | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
@@ -93,17 +97,21 @@ All configuration is via environment variables:
 |---|---|---|
 | `PORT` | `12111` | HTTP port |
 | `HOST` | `0.0.0.0` | Bind address |
+| `CONTROL_PORT` | `12112` | Gym controller HTTP port; must differ from `PORT` |
+| `CONTROL_HOST` | `127.0.0.1` | Controller bind address; keep loopback-only outside isolated container networks |
 | `FAKE_STRIPE_SEED` | `1` | Seed for the initial world (only used when no snapshot exists) |
 | `FAKE_STRIPE_DATA` | `data/state.json` | Where the state snapshot is written |
 | `FAKE_STRIPE_CLOCK_MODE` | `free` | Initial clock mode when no snapshot exists: `free` follows wall time; `manual` starts at deterministic seeded time |
-| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables privileged state export and clock advancement; callers must send the same value in `X-Siere-Control-Token` |
+| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables controller endpoints; callers must send the same value in `X-Siere-Control-Token` |
 | `FAKE_STRIPE_WEBHOOK_URL` | _(none)_ | If set, signed events are POSTed here (also settable at runtime via `/v1/admin/webhook`) |
 | `FAKE_STRIPE_WEBHOOK_SECRET` | `whsec_test` | Secret used to sign webhook payloads |
 | `FAKE_STRIPE_PUBLIC_URL` | _(request host)_ | Base URL put in hosted checkout/portal `url`s — set it when a browser reaches the simulator at a different address than the API caller does |
 
 ### Authentication
 
-Every `/v1` business endpoint requires an API key, exactly like real Stripe — send `Authorization: Bearer sk_test_...`. Any `sk_...` value is accepted (this is a fake; we don't validate which key); a **missing** key returns `401 authentication_error`. Health, reset, renewal, and webhook-admin endpoints remain keyless for local compatibility. Privileged state export and clock advancement are different: they are disabled unless `FAKE_STRIPE_CONTROL_TOKEN` is configured and return `403` unless the caller supplies that token in `X-Siere-Control-Token`. The official SDKs send the business API key automatically.
+Every `/v1` business endpoint requires an API key, exactly like real Stripe — send `Authorization: Bearer sk_test_...`. Any `sk_...` value is accepted (this is a fake; we don't validate which key); a **missing** key returns `401 authentication_error`. The official SDKs send the business API key automatically.
+
+Gym lifecycle and verifier endpoints run on a separate controller listener. They are disabled unless `FAKE_STRIPE_CONTROL_TOKEN` is configured and return `403` unless the caller supplies that token in `X-Siere-Control-Token`. Never put the controller URL or token in an Android app or model context.
 
 ---
 
@@ -135,7 +143,7 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Events** — `GET /v1/events/{id}`, `GET /v1/events`
 
-**Admin (non-Stripe)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID][&clock_mode=free|manual]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`; privileged `GET /v1/admin/state` and `POST /v1/admin/clock/advance?seconds=N`
+**Controller (non-Stripe, port 12112)** — `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID][&clock_mode=free|manual]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`, `GET /v1/admin/state`, and `POST /v1/admin/clock/advance?seconds=N`. All require the controller token. `GET /healthz` exists on both listeners.
 
 Cross-cutting: **idempotency** (`Idempotency-Key` header on POSTs) and **signed webhooks** (see below).
 
@@ -188,7 +196,8 @@ The card **number** decides the outcome (Stripe's documented test cards). You ca
 Training requires reproducible starting states. `FAKE_STRIPE_SEED=N` (or `POST /v1/admin/reset?seed=N`) builds a world of customers, saved cards and past payments where **the same seed always yields the same objects, down to their IDs**. IDs are drawn from a seeded PRNG, and the generator's position is snapshotted so it resumes deterministically after a restart.
 
 ```bash
-curl -X POST "http://localhost:12111/v1/admin/reset?seed=42"
+curl -X POST "http://localhost:12112/v1/admin/reset?seed=42" \
+  -H "X-Siere-Control-Token: gym_control_local"
 # -> { "object": "admin.reset", "seed": 42, "scenario": null, "state_revision": 1,
 #      "clock": { "mode": "free", "current_time": ... }, "task_context": {}, ... }
 ```
@@ -210,7 +219,8 @@ seed while the same `{seed, scenario}` pair reproduces exactly.
 
 ```bash
 curl -X POST \
-  "http://localhost:12111/v1/admin/reset?seed=42&scenario=duplicate_payments"
+  "http://localhost:12112/v1/admin/reset?seed=42&scenario=duplicate_payments" \
+  -H "X-Siere-Control-Token: gym_control_local"
 # -> { "object": "admin.reset", "seed": 42, "scenario": "duplicate_payments",
 #      "state_revision": 1, "clock": { "mode": "manual", "current_time": ... },
 #      "task_context": { "customer_name": "..." }, ... }
@@ -232,7 +242,7 @@ agent. The new time and any resulting Checkout Session expirations are persisted
 before success is returned:
 
 ```bash
-curl -X POST "http://localhost:12111/v1/admin/clock/advance?seconds=3600" \
+curl -X POST "http://localhost:12112/v1/admin/clock/advance?seconds=3600" \
   -H "X-Siere-Control-Token: gym_control_local"
 # -> { "object": "admin.clock", "mode": "manual", "current_time": ...,
 #      "advanced_by": 3600, "state_revision": 2 }
@@ -258,7 +268,7 @@ provider calls. Configure a controller token and call the simulator-only export:
 ```bash
 FAKE_STRIPE_CONTROL_TOKEN=gym_control_local ./gradlew run
 
-curl -s http://localhost:12111/v1/admin/state \
+curl -s http://localhost:12112/v1/admin/state \
   -H "X-Siere-Control-Token: gym_control_local"
 ```
 
@@ -273,11 +283,10 @@ credential-like input.
 
 This endpoint is a **Gym control-plane API, not a Stripe API**. Never put the
 controller token in an Android app, model context, task pack, APK, or provider
-request. Pilot packaging must inject a random token only into the simulator and
-runner and must keep admin traffic on the controller path. The later control-plane
-isolation task adds a separate host-only listener and an automated network test;
-the token is the current defense against access through the shared development
-listener.
+request. Production startup registers no admin routes on the actor listener.
+The controller listener defaults to host loopback, Docker publishes it only on
+host loopback, and every controller route also requires the controller token.
+`ControlPlaneIsolationTest` locks down both route surfaces and listener defaults.
 
 ## Error shapes
 
@@ -343,7 +352,9 @@ Mutations record **Events** (`customer.created`, `payment_intent.succeeded`, `ch
 
 ```bash
 # Point deliveries at your receiver, then watch signed events arrive
-curl -s -X POST "http://localhost:12111/v1/admin/webhook" -d url=http://localhost:9000/hook -d secret=whsec_abc
+curl -s -X POST "http://localhost:12112/v1/admin/webhook" \
+  -H "X-Siere-Control-Token: gym_control_local" \
+  -d url=http://localhost:9000/hook -d secret=whsec_abc
 ```
 
 ---
@@ -390,11 +401,11 @@ The strongest proof of realism is Stripe's **own client libraries, unmodified**,
 
 ## Postman collection
 
-[`postman/fake-stripe.postman_collection.json`](postman/fake-stripe.postman_collection.json) covers all endpoints, with collection-level `Bearer {{apiKey}}` auth, `{{baseUrl}}`/`{{apiKey}}` variables, and scripts that capture created IDs so requests chain. It's produced by [`postman/generate_collection.py`](postman/generate_collection.py) — **when an endpoint changes, edit the generator and re-run it** so the collection never drifts.
+[`postman/fake-stripe.postman_collection.json`](postman/fake-stripe.postman_collection.json) covers all endpoints, with collection-level `Bearer {{apiKey}}` auth, separate `{{baseUrl}}` and `{{controlUrl}}` variables, and scripts that capture created IDs so requests chain. Controller requests carry `{{controlToken}}`. It's produced by [`postman/generate_collection.py`](postman/generate_collection.py) — **when an endpoint changes, edit the generator and re-run it** so the collection never drifts.
 
 ## Tested
 
-Thirty-nine tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, **free/manual clock determinism, authorization, persistence, rollback, and time-driven expiry**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
+Forty-two tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, **free/manual clock determinism, authorization, persistence, rollback, and time-driven expiry**, **actor/controller route and listener isolation**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
 
 ---
 

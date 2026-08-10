@@ -20,6 +20,8 @@ Config (env):
   REF_KEY    reference API key    (a Stripe *test* key sk_test_... ; any value for stripe-mock)
   SIM_BASE   simulator base URL   (default http://localhost:12111)
   SIM_KEY    simulator API key    (default sk_test_123)
+  CONTROL_BASE controller base URL (default http://localhost:12112)
+  FAKE_STRIPE_CONTROL_TOKEN controller credential (default gym_control_local)
 
 Examples:
   # 1) record real Stripe's behavior (needs a free test key), then check the sim:
@@ -47,6 +49,8 @@ except Exception:  # SDK version shim
 REF_BASE = os.environ.get("REF_BASE", "https://api.stripe.com")
 REF_KEY = os.environ.get("REF_KEY", "")
 SIM_BASE = os.environ.get("SIM_BASE", "http://localhost:12111")
+CONTROL_BASE = os.environ.get("CONTROL_BASE", "http://localhost:12112")
+CONTROL_TOKEN = os.environ.get("FAKE_STRIPE_CONTROL_TOKEN", "gym_control_local")
 SIM_KEY = os.environ.get("SIM_KEY", "sk_test_123")
 
 GOLDEN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden")
@@ -191,7 +195,12 @@ def reset_sim():
     import urllib.request
     try:
         urllib.request.urlopen(
-            urllib.request.Request(f"{SIM_BASE}/v1/admin/reset?seed=1", method="POST"), timeout=10
+            urllib.request.Request(
+                f"{CONTROL_BASE}/v1/admin/reset?seed=1",
+                method="POST",
+                headers={"X-Siere-Control-Token": CONTROL_TOKEN},
+            ),
+            timeout=10,
         )
     except Exception:
         pass

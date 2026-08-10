@@ -34,7 +34,9 @@ class ResetScenarioTest {
         val simulator = newSim()
         application { module(simulator, controlToken = "controller-test-token") }
 
-        val response = client.post("/v1/admin/reset?seed=42&scenario=duplicate_payments")
+        val response = client.post("/v1/admin/reset?seed=42&scenario=duplicate_payments") {
+            header("X-Siere-Control-Token", "controller-test-token")
+        }
         assertEquals(HttpStatusCode.OK, response.status)
         val reset = json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(Seeder.DUPLICATE_PAYMENTS, reset["scenario"]!!.jsonPrimitive.content)
@@ -55,8 +57,10 @@ class ResetScenarioTest {
 
     @Test
     fun `legacy reset without scenario remains compatible`() = testApplication {
-        application { module(newSim()) }
-        val response = client.post("/v1/admin/reset?seed=7")
+        application { module(newSim(), controlToken = "controller-test-token") }
+        val response = client.post("/v1/admin/reset?seed=7") {
+            header("X-Siere-Control-Token", "controller-test-token")
+        }
         assertEquals(HttpStatusCode.OK, response.status)
         val reset = json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(7L, reset["seed"]!!.jsonPrimitive.content.toLong())
@@ -67,10 +71,12 @@ class ResetScenarioTest {
     @Test
     fun `unknown scenario fails without replacing current state`() = testApplication {
         val simulator = newSim()
-        application { module(simulator) }
+        application { module(simulator, controlToken = "controller-test-token") }
         val seedBefore = simulator.seed
 
-        val response = client.post("/v1/admin/reset?seed=99&scenario=unknown")
+        val response = client.post("/v1/admin/reset?seed=99&scenario=unknown") {
+            header("X-Siere-Control-Token", "controller-test-token")
+        }
         assertEquals(HttpStatusCode.BadRequest, response.status)
         val error = json.parseToJsonElement(response.bodyAsText()).jsonObject["error"]!!.jsonObject
         assertEquals("scenario", error["param"]!!.jsonPrimitive.content)

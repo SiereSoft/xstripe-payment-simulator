@@ -11,7 +11,7 @@ Start the simulator, then run the suite against it:
 ```bash
 # 1. Start the server (either way)
 docker compose up --build            # from the repo root
-# ...or: ./gradlew run
+# ...or: FAKE_STRIPE_CONTROL_TOKEN=gym_control_local ./gradlew run
 
 # 2. In another shell, run the SDK tests
 cd sdk-tests
@@ -25,6 +25,8 @@ pytest -v
 | Env var | Default | Meaning |
 |---|---|---|
 | `FAKE_STRIPE_BASE` | `http://localhost:12111` | Simulator base URL |
+| `FAKE_STRIPE_CONTROL_BASE` | `http://localhost:12112` | Host-only controller base URL used by the reset fixture |
+| `FAKE_STRIPE_CONTROL_TOKEN` | `gym_control_local` | Controller credential sent only by the reset fixture |
 | `FAKE_STRIPE_KEY` | `sk_test_123` | Any `sk_...` value; the simulator accepts any key |
 
 The suite resets the world to `seed=1` at the start of the session (`conftest.py`).

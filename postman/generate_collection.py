@@ -17,13 +17,14 @@ COLLECTION_NAME = "fake-stripe"
 SCHEMA = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 
 
-def url(path, query=None):
-    raw = "{{baseUrl}}" + path
+def url(path, query=None, base_variable="baseUrl"):
+    base = "{{" + base_variable + "}}"
+    raw = base + path
     if query:
         raw += "?" + "&".join(f"{k}={v}" for k, v in query.items())
     u = {
         "raw": raw,
-        "host": ["{{baseUrl}}"],
+        "host": [base],
         "path": [p for p in path.strip("/").split("/")],
     }
     if query:
@@ -50,9 +51,16 @@ def capture(var, source):
     ]
 
 
-def req(name, method, path, fields=None, query=None, tests=None, no_auth=False, headers=None):
+def req(name, method, path, fields=None, query=None, tests=None, no_auth=False, headers=None,
+        control=False):
     hdrs = [{"key": k, "value": v} for k, v in (headers or [])]
-    request = {"method": method, "header": hdrs, "url": url(path, query)}
+    if control:
+        hdrs.append({"key": "X-Siere-Control-Token", "value": "{{controlToken}}"})
+    request = {
+        "method": method,
+        "header": hdrs,
+        "url": url(path, query, "controlUrl" if control else "baseUrl"),
+    }
     if fields is not None:
         request["body"] = body(fields)
     if no_auth:
@@ -70,15 +78,15 @@ def folder(name, items):
 ITEMS = [
     folder("Admin", [
         req("Liveness", "GET", "/healthz", no_auth=True),
-        req("World summary", "GET", "/v1/admin/health", no_auth=True),
-        req("Privileged full-state export", "GET", "/v1/admin/state", no_auth=True,
-            headers=[("X-Siere-Control-Token", "{{controlToken}}")]),
-        req("Reset (seed=1)", "POST", "/v1/admin/reset", query={"seed": 1}, no_auth=True),
+        req("World summary", "GET", "/v1/admin/health", no_auth=True, control=True),
+        req("Privileged full-state export", "GET", "/v1/admin/state", no_auth=True, control=True),
+        req("Reset (seed=1)", "POST", "/v1/admin/reset", query={"seed": 1}, no_auth=True,
+            control=True),
         req("Reset duplicate-payments task", "POST", "/v1/admin/reset",
-            query={"seed": 42, "scenario": "duplicate_payments", "clock_mode": "manual"}, no_auth=True),
+            query={"seed": 42, "scenario": "duplicate_payments", "clock_mode": "manual"},
+            no_auth=True, control=True),
         req("Advance manual clock (1 hour)", "POST", "/v1/admin/clock/advance",
-            query={"seconds": 3600}, no_auth=True,
-            headers=[("X-Siere-Control-Token", "{{controlToken}}")]),
+            query={"seconds": 3600}, no_auth=True, control=True),
     ]),
     folder("Customers", [
         req("Create customer", "POST", "/v1/customers",
@@ -175,7 +183,7 @@ ITEMS = [
             fields=[("cancel_at_period_end", "true")]),
         req("List subscriptions", "GET", "/v1/subscriptions", query={"customer": "{{customerId}}"}),
         req("Renew into next period (admin)", "POST", "/v1/admin/subscriptions/{{subscriptionId}}/renew",
-            no_auth=True,
+            no_auth=True, control=True,
             tests=[
                 "const d = pm.response.json();",
                 "if (d.latest_invoice) pm.collectionVariables.set('invoiceId', d.latest_invoice);",
@@ -231,8 +239,9 @@ ITEMS = [
     ]),
     folder("Webhooks (admin)", [
         req("Set webhook URL + secret", "POST", "/v1/admin/webhook",
-            fields=[("url", "https://example.com/webhook"), ("secret", "whsec_test")], no_auth=True),
-        req("Get webhook config", "GET", "/v1/admin/webhook", no_auth=True),
+            fields=[("url", "https://example.com/webhook"), ("secret", "whsec_test")],
+            no_auth=True, control=True),
+        req("Get webhook config", "GET", "/v1/admin/webhook", no_auth=True, control=True),
     ]),
     folder("Idempotency", [
         req("Create customer with Idempotency-Key", "POST", "/v1/customers",
@@ -245,7 +254,7 @@ COLLECTION = {
     "info": {
         "name": COLLECTION_NAME,
         "description": (
-            "Stateful Stripe payments-core simulator. Set {{baseUrl}} and {{apiKey}} "
+            "Stateful Stripe payments-core simulator. Set {{baseUrl}}, {{controlUrl}}, and {{apiKey}} "
             "(any sk_... value works). Requests are form-encoded like real Stripe. "
             "IDs from create calls are captured into collection variables so folders chain."
         ),
@@ -255,6 +264,7 @@ COLLECTION = {
     "event": [],
     "variable": [
         {"key": "baseUrl", "value": "http://localhost:12111"},
+        {"key": "controlUrl", "value": "http://localhost:12112"},
         {"key": "apiKey", "value": "sk_test_123"},
         {"key": "controlToken", "value": "gym_control_local"},
         {"key": "customerId", "value": ""},

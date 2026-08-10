@@ -26,7 +26,8 @@ We'd rather ship a small thing that behaves correctly than a large thing that mo
 
 ```bash
 ./gradlew test          # unit + stripe-java SDK tests
-./gradlew run           # server on :12111
+FAKE_STRIPE_CONTROL_TOKEN=gym_control_local ./gradlew run
+                         # actor on :12111, controller on loopback :12112
 docker compose up --build
 ```
 

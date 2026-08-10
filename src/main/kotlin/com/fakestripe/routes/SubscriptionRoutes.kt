@@ -45,20 +45,6 @@ fun Route.subscriptionRoutes(sim: Simulator) {
         call.respondStripe(json)
     }
 
-    /**
-     * Advance a subscription into its next billing period and try to collect —
-     * the renewal a wall clock would eventually trigger. Admin, not Stripe: it is
-     * the only way to reach `invoice.paid` on a renewal, or `invoice.payment_failed`
-     * plus a `past_due` subscription, without waiting a month.
-     */
-    post("/v1/admin/subscriptions/{id}/renew") {
-        val id = call.parameters["id"]!!
-        val json = sim.write { store ->
-            store.subscriptionJson(BillingOps.renewSubscription(store, store.requireSubscription(id)))
-        }
-        call.respondStripe(json)
-    }
-
     get("/v1/subscriptions") {
         val params = call.queryParams()
         val json = sim.read { store ->
@@ -68,6 +54,18 @@ fun Route.subscriptionRoutes(sim: Simulator) {
                 (customer == null || it.customer == customer) && (status == null || it.status == status)
             }
             store.paginated(all, "/v1/subscriptions", params, { it.id }, { it.created }, { store.subscriptionJson(it) })
+        }
+        call.respondStripe(json)
+    }
+}
+
+/** Controller-only forced renewal used to exercise recurring billing and dunning. */
+fun Route.subscriptionAdminRoutes(sim: Simulator, controlToken: String?) {
+    post("/v1/admin/subscriptions/{id}/renew") {
+        if (!call.requireController(controlToken)) return@post
+        val id = call.parameters["id"]!!
+        val json = sim.write { store ->
+            store.subscriptionJson(BillingOps.renewSubscription(store, store.requireSubscription(id)))
         }
         call.respondStripe(json)
     }

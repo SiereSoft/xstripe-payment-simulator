@@ -6,6 +6,7 @@ import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.request.delete
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -28,6 +29,7 @@ import kotlin.test.assertTrue
 class BillingPortalTest {
 
     private val json = Json { ignoreUnknownKeys = true }
+    private val controlToken = "controller-test-token"
 
     private fun form(vararg pairs: Pair<String, String>) =
         FormDataContent(parametersOf(*pairs.map { it.first to listOf(it.second) }.toTypedArray()))
@@ -134,7 +136,12 @@ class BillingPortalTest {
 
     @Test
     fun `a renewal on a declining card goes past_due and emits invoice_payment_failed`() = testApplication {
-        application { module(Simulator.boot(Files.createTempFile("fs-dunning", ".json"), 1L)) }
+        application {
+            module(
+                Simulator.boot(Files.createTempFile("fs-dunning", ".json"), 1L),
+                controlToken = controlToken,
+            )
+        }
         val client = authed()
         val (customer, sub) = subscribe(client)
 
@@ -144,7 +151,9 @@ class BillingPortalTest {
         }.obj(json)["id"]!!.jsonPrimitive.content
         client.post("/v1/subscriptions/$sub") { setBody(form("default_payment_method" to badPm)) }
 
-        val renewed = client.post("/v1/admin/subscriptions/$sub/renew").obj(json)
+        val renewed = client.post("/v1/admin/subscriptions/$sub/renew") {
+            header("X-Siere-Control-Token", controlToken)
+        }.obj(json)
         assertEquals("past_due", renewed["status"]!!.jsonPrimitive.content)
 
         val failed = events(client, "invoice.payment_failed")
@@ -161,12 +170,19 @@ class BillingPortalTest {
 
     @Test
     fun `a renewal on a good card bills the next period`() = testApplication {
-        application { module(Simulator.boot(Files.createTempFile("fs-renew", ".json"), 1L)) }
+        application {
+            module(
+                Simulator.boot(Files.createTempFile("fs-renew", ".json"), 1L),
+                controlToken = controlToken,
+            )
+        }
         val client = authed()
         val (_, sub) = subscribe(client)
 
         val before = client.get("/v1/subscriptions/$sub").obj(json)["current_period_end"]!!.jsonPrimitive.content.toLong()
-        val renewed = client.post("/v1/admin/subscriptions/$sub/renew").obj(json)
+        val renewed = client.post("/v1/admin/subscriptions/$sub/renew") {
+            header("X-Siere-Control-Token", controlToken)
+        }.obj(json)
         assertEquals("active", renewed["status"]!!.jsonPrimitive.content)
         assertTrue(renewed["current_period_end"]!!.jsonPrimitive.content.toLong() > before)
 

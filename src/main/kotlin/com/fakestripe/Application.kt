@@ -16,10 +16,12 @@ import com.fakestripe.routes.priceRoutes
 import com.fakestripe.routes.productRoutes
 import com.fakestripe.routes.refundRoutes
 import com.fakestripe.routes.respondStripe
+import com.fakestripe.routes.serviceRoutes
+import com.fakestripe.routes.subscriptionAdminRoutes
 import com.fakestripe.routes.subscriptionRoutes
 import com.fakestripe.routes.webhookAdminRoutes
-import com.fakestripe.store.Simulator
 import com.fakestripe.store.ClockMode
+import com.fakestripe.store.Simulator
 import com.fakestripe.webhook.WebhookDispatcher
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -39,38 +41,98 @@ import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respondText
-import java.security.MessageDigest
-import java.util.Base64
 import io.ktor.server.routing.Routing
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import java.nio.file.Paths
+import java.security.MessageDigest
+import java.util.Base64
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.slf4j.event.Level
-import java.nio.file.Paths
 
 fun main() {
-    val port = System.getenv("PORT")?.toIntOrNull() ?: 12111
-    val host = System.getenv("HOST") ?: "0.0.0.0"
-    embeddedServer(Netty, port = port, host = host) { module() }.start(wait = true)
+    val config = ServerConfig.from(System.getenv())
+    val simulator = simulatorFromEnvironment()
+    val controlToken = System.getenv("FAKE_STRIPE_CONTROL_TOKEN")
+    val controller = embeddedServer(Netty, port = config.controllerPort, host = config.controllerHost) {
+        controllerModule(simulator, controlToken)
+    }
+    val actor = embeddedServer(Netty, port = config.actorPort, host = config.actorHost) {
+        actorModule(simulator)
+    }
+
+    controller.start(wait = false)
+    try {
+        actor.start(wait = true)
+    } finally {
+        controller.stop(gracePeriodMillis = 1_000, timeoutMillis = 5_000)
+    }
 }
 
 fun Application.module() {
+    actorModule(simulatorFromEnvironment())
+}
+
+private fun simulatorFromEnvironment(): Simulator {
     val dataPath = Paths.get(System.getenv("FAKE_STRIPE_DATA") ?: "data/state.json")
     val seed = System.getenv("FAKE_STRIPE_SEED")?.toLongOrNull() ?: 1L
     val webhooks = WebhookDispatcher(
         url = System.getenv("FAKE_STRIPE_WEBHOOK_URL"),
         secret = System.getenv("FAKE_STRIPE_WEBHOOK_SECRET") ?: "whsec_test",
     )
-    val controlToken = System.getenv("FAKE_STRIPE_CONTROL_TOKEN")
     val clockModeValue = System.getenv("FAKE_STRIPE_CLOCK_MODE") ?: ClockMode.FREE.wireValue
     val clockMode = ClockMode.parse(clockModeValue)
         ?: error("FAKE_STRIPE_CLOCK_MODE must be 'free' or 'manual'.")
-    module(Simulator.boot(dataPath, seed, webhooks, clockMode), controlToken)
+    return Simulator.boot(dataPath, seed, webhooks, clockMode)
 }
 
-/** Wires the whole API around a given [Simulator]. Tests inject their own. */
+data class ServerConfig(
+    val actorHost: String,
+    val actorPort: Int,
+    val controllerHost: String,
+    val controllerPort: Int,
+) {
+    init {
+        require(actorPort in 1..65_535) { "PORT must be between 1 and 65535." }
+        require(controllerPort in 1..65_535) { "CONTROL_PORT must be between 1 and 65535." }
+        require(actorPort != controllerPort) { "PORT and CONTROL_PORT must be different." }
+    }
+
+    companion object {
+        fun from(environment: Map<String, String>): ServerConfig = ServerConfig(
+            actorHost = environment["HOST"] ?: "0.0.0.0",
+            actorPort = environment["PORT"]?.toIntOrNull() ?: 12111,
+            controllerHost = environment["CONTROL_HOST"] ?: "127.0.0.1",
+            controllerPort = environment["CONTROL_PORT"]?.toIntOrNull() ?: 12112,
+        )
+    }
+}
+
+/** Wires only the Stripe-compatible surface exposed to the actor/Android app. */
+fun Application.actorModule(sim: Simulator) {
+    configureApplication(sim, actorRoutes = true, controllerRoutes = false, controlToken = null)
+}
+
+/** Wires only Gym lifecycle and verifier endpoints on the controller listener. */
+fun Application.controllerModule(sim: Simulator, controlToken: String?) {
+    configureApplication(sim, actorRoutes = false, controllerRoutes = true, controlToken = controlToken)
+}
+
+/**
+ * Combined in-memory application retained for behavior tests. Production startup
+ * always uses [actorModule] and [controllerModule] on separate listeners.
+ */
 fun Application.module(sim: Simulator, controlToken: String? = null) {
+    configureApplication(sim, actorRoutes = true, controllerRoutes = true, controlToken = controlToken)
+}
+
+private fun Application.configureApplication(
+    sim: Simulator,
+    actorRoutes: Boolean,
+    controllerRoutes: Boolean,
+    controlToken: String?,
+) {
     install(CallLogging) { level = Level.INFO }
     install(DefaultHeaders) {
         header("Stripe-Version", "2024-06-20")
@@ -100,10 +162,11 @@ fun Application.module(sim: Simulator, controlToken: String? = null) {
 
     // Lightweight API-key auth: every /v1 business call must carry a Bearer (or Basic)
     // key, exactly like real Stripe. We accept ANY sk_... value — this is a fake — but
-    // reject a missing key with Stripe's authentication_error. Admin/health stay open.
+    // reject a missing key with Stripe's authentication_error. Controller routes
+    // use their own token check instead of a Stripe API key.
     intercept(ApplicationCallPipeline.Plugins) {
         val path = call.request.path()
-        val needsAuth = path.startsWith("/v1/") && !path.startsWith("/v1/admin/")
+        val needsAuth = actorRoutes && path.startsWith("/v1/") && !path.startsWith("/v1/admin/")
         if (needsAuth && apiKeyFrom(call.request.header(HttpHeaders.Authorization)) == null) {
             val err = StripeException.authenticationError()
             call.respondStripe(err.toJson(), err.status)
@@ -115,7 +178,7 @@ fun Application.module(sim: Simulator, controlToken: String? = null) {
     // repeat (and errors if the same key is reused with a different body).
     intercept(ApplicationCallPipeline.Plugins) {
         val path = call.request.path()
-        val isBusinessPost = call.request.httpMethod == HttpMethod.Post &&
+        val isBusinessPost = actorRoutes && call.request.httpMethod == HttpMethod.Post &&
             path.startsWith("/v1/") && !path.startsWith("/v1/admin/")
         val key = call.request.header("Idempotency-Key")
         if (isBusinessPost && !key.isNullOrBlank()) {
@@ -143,20 +206,26 @@ fun Application.module(sim: Simulator, controlToken: String? = null) {
     }
 
     routing {
-        adminRoutes(sim, controlToken)
-        customerRoutes(sim)
-        paymentMethodRoutes(sim)
-        paymentIntentRoutes(sim)
-        chargeRoutes(sim)
-        refundRoutes(sim)
-        productRoutes(sim)
-        priceRoutes(sim)
-        subscriptionRoutes(sim)
-        invoiceRoutes(sim)
-        checkoutRoutes(sim)
-        billingPortalRoutes(sim)
-        eventRoutes(sim)
-        webhookAdminRoutes(sim)
+        serviceRoutes(sim, includeServiceInfo = actorRoutes)
+        if (actorRoutes) {
+            customerRoutes(sim)
+            paymentMethodRoutes(sim)
+            paymentIntentRoutes(sim)
+            chargeRoutes(sim)
+            refundRoutes(sim)
+            productRoutes(sim)
+            priceRoutes(sim)
+            subscriptionRoutes(sim)
+            invoiceRoutes(sim)
+            checkoutRoutes(sim)
+            billingPortalRoutes(sim)
+            eventRoutes(sim)
+        }
+        if (controllerRoutes) {
+            adminRoutes(sim, controlToken)
+            subscriptionAdminRoutes(sim, controlToken)
+            webhookAdminRoutes(sim, controlToken)
+        }
         unknownUrlFallback()
     }
 }

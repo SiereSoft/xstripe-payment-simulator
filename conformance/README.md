@@ -56,7 +56,7 @@ differences are warnings. This turns "is it really like Stripe?" into a punch li
   `REF_BASE=http://localhost:12111 REF_KEY=sk_test_123 python compare.py live` — and
   you should get zero diffs. Proves the machinery, not the fidelity.
 - **stripe-mock shape diff:** run [`stripe-mock`](https://github.com/stripe/stripe-mock)
-  on `:12112` and set `REF_BASE=http://localhost:12112 REF_KEY=sk_test_x`. `stripe-mock`
+  on `:12113` and set `REF_BASE=http://localhost:12113 REF_KEY=sk_test_x`. `stripe-mock`
   is schema-accurate (generated from Stripe's OpenAPI spec) but stateless, so treat
   value mismatches as expected and focus on **shape** (`missing_in_sim`).
 
