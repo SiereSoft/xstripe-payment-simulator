@@ -31,6 +31,7 @@ private data class StoreSnapshot(
     val seed: Long,
     val idCount: Int,
     val revision: Long = 0,
+    val scenario: ScenarioState? = null,
     val customers: List<Customer>,
     val paymentMethods: List<PaymentMethod>,
     val paymentIntents: List<PaymentIntent>,
@@ -53,31 +54,37 @@ object Snapshot {
 
     fun save(store: DataStore, path: Path) {
         try {
-            val snap = StoreSnapshot(
-                seed = store.seed,
-                idCount = store.ids.count,
-                revision = store.revision,
-                customers = store.customers.values.toList(),
-                paymentMethods = store.paymentMethods.values.toList(),
-                paymentIntents = store.paymentIntents.values.toList(),
-                charges = store.charges.values.toList(),
-                refunds = store.refunds.values.toList(),
-                products = store.products.values.toList(),
-                prices = store.prices.values.toList(),
-                subscriptions = store.subscriptions.values.toList(),
-                invoices = store.invoices.values.toList(),
-                checkoutSessions = store.checkoutSessions.values.toList(),
-                portalSessions = store.portalSessions.values.toList(),
-                events = store.events.values.toList(),
-                idempotency = store.idempotency.toMap(),
-            )
-            path.parent?.let { Files.createDirectories(it) }
-            val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
-            Files.write(tmp, json.encodeToString(StoreSnapshot.serializer(), snap).toByteArray())
-            Files.move(tmp, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            saveOrThrow(store, path)
         } catch (e: Exception) {
             log.warn("Failed to write snapshot to {}: {}", path, e.message)
         }
+    }
+
+    /** Persist or throw; reset uses this so it never acknowledges an unsaved world. */
+    fun saveOrThrow(store: DataStore, path: Path) {
+        val snap = StoreSnapshot(
+            seed = store.seed,
+            idCount = store.ids.count,
+            revision = store.revision,
+            scenario = store.scenario,
+            customers = store.customers.values.toList(),
+            paymentMethods = store.paymentMethods.values.toList(),
+            paymentIntents = store.paymentIntents.values.toList(),
+            charges = store.charges.values.toList(),
+            refunds = store.refunds.values.toList(),
+            products = store.products.values.toList(),
+            prices = store.prices.values.toList(),
+            subscriptions = store.subscriptions.values.toList(),
+            invoices = store.invoices.values.toList(),
+            checkoutSessions = store.checkoutSessions.values.toList(),
+            portalSessions = store.portalSessions.values.toList(),
+            events = store.events.values.toList(),
+            idempotency = store.idempotency.toMap(),
+        )
+        path.parent?.let { Files.createDirectories(it) }
+        val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
+        Files.write(tmp, json.encodeToString(StoreSnapshot.serializer(), snap).toByteArray())
+        Files.move(tmp, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 
     fun load(path: Path): DataStore? {
@@ -85,6 +92,7 @@ object Snapshot {
         return try {
             val snap = json.decodeFromString(StoreSnapshot.serializer(), String(Files.readAllBytes(path)))
             DataStore(snap.seed, idCount = snap.idCount, revision = snap.revision).apply {
+                scenario = snap.scenario
                 snap.customers.forEach { customers[it.id] = it }
                 snap.paymentMethods.forEach { paymentMethods[it.id] = it }
                 snap.paymentIntents.forEach { paymentIntents[it.id] = it }

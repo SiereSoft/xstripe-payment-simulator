@@ -173,6 +173,37 @@
               "type": "noauth"
             }
           }
+        },
+        {
+          "name": "Reset duplicate-payments task",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "reset"
+              ],
+              "query": [
+                {
+                  "key": "seed",
+                  "value": "42"
+                },
+                {
+                  "key": "scenario",
+                  "value": "duplicate_payments"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
         }
       ]
     },

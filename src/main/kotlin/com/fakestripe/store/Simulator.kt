@@ -49,11 +49,12 @@ class Simulator(
         if (secret != null) webhooks.secret = secret
     }
 
-    fun reset(seed: Long) {
+    fun reset(seed: Long, scenario: String? = null) {
         synchronized(lock) {
             val nextRevision = store.revision + 1
-            store = Seeder.build(seed).also { it.revision = nextRevision }
-            Snapshot.save(store, dataPath)
+            val candidate = Seeder.build(seed, scenario).also { it.revision = nextRevision }
+            Snapshot.saveOrThrow(candidate, dataPath)
+            store = candidate
         }
     }
 

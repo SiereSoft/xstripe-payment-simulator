@@ -42,7 +42,7 @@ So we don't compete with `stripe-mock` — we **use it as a validation oracle**,
 
 The loop that makes this a *gym* rather than a mock:
 
-1. **Seed** a known world — `POST /v1/admin/reset?seed=N` yields the same customers, cards, and history every time.
+1. **Seed** a known world — `POST /v1/admin/reset?seed=N&scenario=duplicate_payments` yields the same task-ready customers, cards, and history every time.
 2. **Act** — point an agent (via the Stripe SDKs, an MCP tool layer, or raw HTTP) at the API and let it work: create a customer, take a payment, refund the smaller of two charges, upgrade a subscription…
 3. **Verify** — use the privileged, redacted `GET /v1/admin/state` export to compare the complete world before and after. Because the world is deterministic and stateful, a checker can assert *exactly* what should have changed — and nothing else.
 
@@ -134,7 +134,7 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Events** — `GET /v1/events/{id}`, `GET /v1/events`
 
-**Admin (non-Stripe)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`; privileged `GET /v1/admin/state`
+**Admin (non-Stripe)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`; privileged `GET /v1/admin/state`
 
 Cross-cutting: **idempotency** (`Idempotency-Key` header on POSTs) and **signed webhooks** (see below).
 
@@ -188,8 +188,35 @@ Training requires reproducible starting states. `FAKE_STRIPE_SEED=N` (or `POST /
 
 ```bash
 curl -X POST "http://localhost:12111/v1/admin/reset?seed=42"
-# -> { "object": "admin.reset", "seed": 42, "customers": 6, "payment_methods": 4, ... }
+# -> { "object": "admin.reset", "seed": 42, "scenario": null, "state_revision": 1,
+#      "task_context": {}, "customers": 6, "payment_methods": 4, ... }
 ```
+
+Pass a scenario ID to build a task-ready Gym world. The reset response returns
+only learner-safe instruction context; the privileged state export contains the
+controller-only IDs needed to verify the result.
+
+| Scenario | Seeded world |
+|---|---|
+| `duplicate_payments` | Two successful, unrefunded charges for one customer plus realistic distractors. |
+| `past_due_subscription` | A failed renewal, declining default card, and usable replacement card. |
+| `upgrade_candidate` | An active Basic-monthly subscription with a Pro-annual target and another active subscription. |
+| `cancel_candidate` | An active subscription with paid-through context and an unrelated subscription. |
+| `payment_investigation` | Several plausible payments and one failed or authentication-required intent. |
+
+For every scenario, customer names, IDs, amounts, and target ordering vary by
+seed while the same `{seed, scenario}` pair reproduces exactly.
+
+```bash
+curl -X POST \
+  "http://localhost:12111/v1/admin/reset?seed=42&scenario=duplicate_payments"
+# -> { "object": "admin.reset", "seed": 42, "scenario": "duplicate_payments",
+#      "state_revision": 1, "task_context": { "customer_name": "..." }, ... }
+```
+
+An unsupported scenario returns Stripe-shaped HTTP `400` without replacing the
+current world. Reset persists the complete candidate snapshot before returning
+success, so a failed write is never acknowledged and the live world stays intact.
 
 ## Persistence
 
@@ -211,7 +238,8 @@ curl -s http://localhost:12111/v1/admin/state \
   -H "X-Siere-Control-Token: gym_control_local"
 ```
 
-The response contains `state_revision`, the deterministic ID sequence, and every
+The response contains `state_revision`, scenario verifier metadata, the
+deterministic ID sequence, and every
 customer, payment method, payment intent, charge, refund, product, price,
 subscription, invoice, checkout session, billing-portal session, event, and
 idempotency record. Raw card numbers, client secrets, raw idempotency keys, and
@@ -341,7 +369,7 @@ The strongest proof of realism is Stripe's **own client libraries, unmodified**,
 
 ## Tested
 
-Twenty-nine tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
+Thirty-five tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
 
 ---
 

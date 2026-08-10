@@ -74,6 +74,8 @@ ITEMS = [
         req("Privileged full-state export", "GET", "/v1/admin/state", no_auth=True,
             headers=[("X-Siere-Control-Token", "{{controlToken}}")]),
         req("Reset (seed=1)", "POST", "/v1/admin/reset", query={"seed": 1}, no_auth=True),
+        req("Reset duplicate-payments task", "POST", "/v1/admin/reset",
+            query={"seed": 42, "scenario": "duplicate_payments"}, no_auth=True),
     ]),
     folder("Customers", [
         req("Create customer", "POST", "/v1/customers",

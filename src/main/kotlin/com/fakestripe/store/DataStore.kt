@@ -23,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
  */
 class DataStore(val seed: Long, idCount: Int = 0, var revision: Long = 0) {
     val ids = IdGenerator(seed, idCount)
+    var scenario: ScenarioState? = null
 
     val customers = LinkedHashMap<String, Customer>()
     val paymentMethods = LinkedHashMap<String, PaymentMethod>()

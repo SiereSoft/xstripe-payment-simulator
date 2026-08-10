@@ -15,7 +15,7 @@ import java.util.Random
  */
 class IdGenerator(private val seed: Long, initialCount: Int = 0) {
     private val rng = Random(seed)
-    var count: Int = 0
+    var count: Int = initialCount
         private set
 
     init {

@@ -17,6 +17,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -38,6 +39,11 @@ fun DataStore.toControlPlaneJson(): JsonObject = buildJsonObject {
     put("state_revision", revision)
     put("seed", seed)
     put("id_sequence", ids.count)
+    put(
+        "scenario",
+        scenario?.let { exportJson.encodeToJsonElement(ScenarioState.serializer(), it).redacted() }
+            ?: JsonNull,
+    )
     put("customers", encodeCollection(customers.values, Customer.serializer()))
     put(
         "payment_methods",

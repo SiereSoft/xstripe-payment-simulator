@@ -1,5 +1,7 @@
 package com.fakestripe.routes
 
+import com.fakestripe.error.StripeException
+import com.fakestripe.seed.Seeder
 import com.fakestripe.store.Simulator
 import com.fakestripe.store.toControlPlaneJson
 import io.ktor.server.application.ApplicationCall
@@ -19,7 +21,7 @@ import java.security.MessageDigest
  *   - GET /healthz liveness
  *   - GET /v1/admin/health world summary
  *   - GET /v1/admin/state complete redacted state for privileged verifiers
- *   - POST /v1/admin/reset?seed=N wipe and re-seed the world deterministically
+ *   - POST /v1/admin/reset?seed=N&scenario=ID persist a deterministic task world
  */
 fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
 
@@ -86,12 +88,24 @@ private fun adminError(message: String) = buildJsonObject {
 }
 
 private suspend fun handleReset(sim: Simulator, call: ApplicationCall) {
-    val seed = call.queryParams().long("seed") ?: call.formParams().long("seed") ?: sim.seed
-    sim.reset(seed)
+    val query = call.queryParams()
+    val form = call.formParams()
+    val seed = query.long("seed") ?: form.long("seed") ?: sim.seed
+    val scenario = (query.opt("scenario") ?: form.opt("scenario"))?.takeIf { it.isNotBlank() }
+    if (scenario != null && scenario !in Seeder.supportedScenarios) {
+        throw StripeException.invalidRequest(
+            "Unsupported scenario '$scenario'. Supported scenarios: ${Seeder.supportedScenarios.sorted().joinToString()}.",
+            param = "scenario",
+        )
+    }
+    sim.reset(seed, scenario)
     call.respondStripe(sim.read { store ->
         buildJsonObject {
             put("object", "admin.reset")
             put("seed", seed)
+            put("scenario", store.scenario?.id)
+            put("state_revision", store.revision)
+            put("task_context", store.scenario?.instructionContext ?: buildJsonObject { })
             put("customers", store.customers.size)
             put("payment_methods", store.paymentMethods.size)
             put("payment_intents", store.paymentIntents.size)
