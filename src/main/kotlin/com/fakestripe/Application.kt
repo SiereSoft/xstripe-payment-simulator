@@ -19,6 +19,7 @@ import com.fakestripe.routes.respondStripe
 import com.fakestripe.routes.subscriptionRoutes
 import com.fakestripe.routes.webhookAdminRoutes
 import com.fakestripe.store.Simulator
+import com.fakestripe.store.ClockMode
 import com.fakestripe.webhook.WebhookDispatcher
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -62,7 +63,10 @@ fun Application.module() {
         secret = System.getenv("FAKE_STRIPE_WEBHOOK_SECRET") ?: "whsec_test",
     )
     val controlToken = System.getenv("FAKE_STRIPE_CONTROL_TOKEN")
-    module(Simulator.boot(dataPath, seed, webhooks), controlToken)
+    val clockModeValue = System.getenv("FAKE_STRIPE_CLOCK_MODE") ?: ClockMode.FREE.wireValue
+    val clockMode = ClockMode.parse(clockModeValue)
+        ?: error("FAKE_STRIPE_CLOCK_MODE must be 'free' or 'manual'.")
+    module(Simulator.boot(dataPath, seed, webhooks, clockMode), controlToken)
 }
 
 /** Wires the whole API around a given [Simulator]. Tests inject their own. */

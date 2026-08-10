@@ -2,7 +2,7 @@
 
 **A stateful, Stripe-compatible payments API you can run locally — for building, testing, and training AI agents against a payment backend that actually remembers what happened.**
 
-![tests](https://img.shields.io/badge/tests-29%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-39%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![stack](https://img.shields.io/badge/Kotlin-Ktor-7F52FF)
 ![run](https://img.shields.io/badge/run-docker%20compose%20up-2496ED)
@@ -95,14 +95,15 @@ All configuration is via environment variables:
 | `HOST` | `0.0.0.0` | Bind address |
 | `FAKE_STRIPE_SEED` | `1` | Seed for the initial world (only used when no snapshot exists) |
 | `FAKE_STRIPE_DATA` | `data/state.json` | Where the state snapshot is written |
-| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables privileged `GET /v1/admin/state`; callers must send the same value in `X-Siere-Control-Token` |
+| `FAKE_STRIPE_CLOCK_MODE` | `free` | Initial clock mode when no snapshot exists: `free` follows wall time; `manual` starts at deterministic seeded time |
+| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables privileged state export and clock advancement; callers must send the same value in `X-Siere-Control-Token` |
 | `FAKE_STRIPE_WEBHOOK_URL` | _(none)_ | If set, signed events are POSTed here (also settable at runtime via `/v1/admin/webhook`) |
 | `FAKE_STRIPE_WEBHOOK_SECRET` | `whsec_test` | Secret used to sign webhook payloads |
 | `FAKE_STRIPE_PUBLIC_URL` | _(request host)_ | Base URL put in hosted checkout/portal `url`s — set it when a browser reaches the simulator at a different address than the API caller does |
 
 ### Authentication
 
-Every `/v1` business endpoint requires an API key, exactly like real Stripe — send `Authorization: Bearer sk_test_...`. Any `sk_...` value is accepted (this is a fake; we don't validate which key); a **missing** key returns `401 authentication_error`. Health, reset, renewal, and webhook-admin endpoints remain keyless for local compatibility. The full-state export is different: it is disabled unless `FAKE_STRIPE_CONTROL_TOKEN` is configured and returns `403` unless the caller supplies that token in `X-Siere-Control-Token`. The official SDKs send the business API key automatically.
+Every `/v1` business endpoint requires an API key, exactly like real Stripe — send `Authorization: Bearer sk_test_...`. Any `sk_...` value is accepted (this is a fake; we don't validate which key); a **missing** key returns `401 authentication_error`. Health, reset, renewal, and webhook-admin endpoints remain keyless for local compatibility. Privileged state export and clock advancement are different: they are disabled unless `FAKE_STRIPE_CONTROL_TOKEN` is configured and return `403` unless the caller supplies that token in `X-Siere-Control-Token`. The official SDKs send the business API key automatically.
 
 ---
 
@@ -134,7 +135,7 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Events** — `GET /v1/events/{id}`, `GET /v1/events`
 
-**Admin (non-Stripe)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`; privileged `GET /v1/admin/state`
+**Admin (non-Stripe)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID][&clock_mode=free|manual]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`; privileged `GET /v1/admin/state` and `POST /v1/admin/clock/advance?seconds=N`
 
 Cross-cutting: **idempotency** (`Idempotency-Key` header on POSTs) and **signed webhooks** (see below).
 
@@ -189,7 +190,7 @@ Training requires reproducible starting states. `FAKE_STRIPE_SEED=N` (or `POST /
 ```bash
 curl -X POST "http://localhost:12111/v1/admin/reset?seed=42"
 # -> { "object": "admin.reset", "seed": 42, "scenario": null, "state_revision": 1,
-#      "task_context": {}, "customers": 6, "payment_methods": 4, ... }
+#      "clock": { "mode": "free", "current_time": ... }, "task_context": {}, ... }
 ```
 
 Pass a scenario ID to build a task-ready Gym world. The reset response returns
@@ -211,20 +212,43 @@ seed while the same `{seed, scenario}` pair reproduces exactly.
 curl -X POST \
   "http://localhost:12111/v1/admin/reset?seed=42&scenario=duplicate_payments"
 # -> { "object": "admin.reset", "seed": 42, "scenario": "duplicate_payments",
-#      "state_revision": 1, "task_context": { "customer_name": "..." }, ... }
+#      "state_revision": 1, "clock": { "mode": "manual", "current_time": ... },
+#      "task_context": { "customer_name": "..." }, ... }
 ```
 
 An unsupported scenario returns Stripe-shaped HTTP `400` without replacing the
 current world. Reset persists the complete candidate snapshot before returning
 success, so a failed write is never acknowledged and the live world stays intact.
 
+### Episode clock
+
+Legacy resets without a scenario default to `clock_mode=free`, which follows host
+wall time. Scenario resets default to `clock_mode=manual`: their starting time is
+derived from the seed and scenario, so the same pair reproduces the same object
+timestamps across runs. Either mode can be selected explicitly on reset.
+
+The controller can advance a manual clock without exposing that capability to an
+agent. The new time and any resulting Checkout Session expirations are persisted
+before success is returned:
+
+```bash
+curl -X POST "http://localhost:12111/v1/admin/clock/advance?seconds=3600" \
+  -H "X-Siere-Control-Token: gym_control_local"
+# -> { "object": "admin.clock", "mode": "manual", "current_time": ...,
+#      "advanced_by": 3600, "state_revision": 2 }
+```
+
+Advancing a free clock returns HTTP `400`. Manual time and mode survive process
+restarts, and every runtime-created object and event obtains its timestamp from
+this clock.
+
 ## Persistence
 
 State lives in memory and is snapshotted to `FAKE_STRIPE_DATA` after every mutation (including recorded declines). On startup the snapshot is loaded if present, so **a customer created before a restart is still there afterward**. Delete the snapshot (or call `reset`) to start clean.
 
 Each persisted mutation advances a monotonic `state_revision`. The revision is
-stored in the snapshot, survives process restarts, advances across resets, and
-does not change when state is merely exported.
+stored in the snapshot, survives process restarts, advances across resets and
+manual clock changes, and does not change when state is merely exported.
 
 ## Privileged state export
 
@@ -238,7 +262,7 @@ curl -s http://localhost:12111/v1/admin/state \
   -H "X-Siere-Control-Token: gym_control_local"
 ```
 
-The response contains `state_revision`, scenario verifier metadata, the
+The response contains `state_revision`, persisted clock state, scenario verifier metadata, the
 deterministic ID sequence, and every
 customer, payment method, payment intent, charge, refund, product, price,
 subscription, invoice, checkout session, billing-portal session, event, and
@@ -344,6 +368,7 @@ src/main/kotlin/com/fakestripe/
 ├── store/
 │   ├── DataStore.kt           # In-memory world + event recording
 │   ├── Simulator.kt           # Lock + read/write/reset + webhook draining
+│   ├── SimulatorClock.kt      # Free/manual episode time + deterministic reset time
 │   ├── Snapshot.kt            # JSON snapshot-to-disk load/save
 │   └── Idempotency.kt         # Cached idempotent responses
 ├── webhook/WebhookDispatcher.kt # Signs + POSTs events to a configurable URL
@@ -369,7 +394,7 @@ The strongest proof of realism is Stripe's **own client libraries, unmodified**,
 
 ## Tested
 
-Thirty-five tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
+Thirty-nine tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, **free/manual clock determinism, authorization, persistence, rollback, and time-driven expiry**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
 
 ---
 

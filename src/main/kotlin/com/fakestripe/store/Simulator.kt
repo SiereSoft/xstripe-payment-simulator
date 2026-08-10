@@ -18,6 +18,7 @@ class Simulator(
     @Volatile var store: DataStore,
     private val dataPath: Path,
     val webhooks: WebhookDispatcher = WebhookDispatcher(null, "whsec_test"),
+    private val wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
 ) {
     private val lock = Any()
 
@@ -49,12 +50,42 @@ class Simulator(
         if (secret != null) webhooks.secret = secret
     }
 
-    fun reset(seed: Long, scenario: String? = null) {
+    fun reset(seed: Long, scenario: String? = null, clockMode: ClockMode? = null) {
         synchronized(lock) {
             val nextRevision = store.revision + 1
-            val candidate = Seeder.build(seed, scenario).also { it.revision = nextRevision }
+            val mode = clockMode ?: ClockMode.defaultFor(scenario)
+            val candidate = Seeder.build(seed, scenario, mode, wallTimeSeconds).also {
+                it.revision = nextRevision
+            }
             Snapshot.saveOrThrow(candidate, dataPath)
             store = candidate
+        }
+    }
+
+    data class ClockAdvanceResult(val currentTime: Long, val revision: Long)
+
+    /** Advance manual episode time atomically; return null when the clock is free-running. */
+    fun advanceClock(seconds: Long): ClockAdvanceResult? = synchronized(lock) {
+        if (store.clock.mode != ClockMode.MANUAL) return@synchronized null
+        val previousTime = store.clock.now()
+        val previousRevision = store.revision
+        val expiredSessionIds = mutableListOf<String>()
+        return@synchronized try {
+            val currentTime = store.clock.advance(seconds)
+            store.checkoutSessions.values
+                .filter { it.status == "open" && currentTime > it.expiresAt }
+                .forEach {
+                    expiredSessionIds += it.id
+                    it.status = "expired"
+                }
+            store.revision += 1
+            Snapshot.saveOrThrow(store, dataPath)
+            ClockAdvanceResult(currentTime, store.revision)
+        } catch (e: Exception) {
+            store.clock.state.manualTime = previousTime
+            store.revision = previousRevision
+            expiredSessionIds.forEach { id -> store.checkoutSessions[id]?.status = "open" }
+            throw e
         }
     }
 
@@ -81,10 +112,16 @@ class Simulator(
             dataPath: Path,
             defaultSeed: Long,
             webhooks: WebhookDispatcher = WebhookDispatcher(null, "whsec_test"),
+            defaultClockMode: ClockMode = ClockMode.FREE,
+            wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
         ): Simulator {
-            val loaded = Snapshot.load(dataPath)
-            val store = loaded ?: Seeder.build(defaultSeed)
-            val sim = Simulator(store, dataPath, webhooks)
+            val loaded = Snapshot.load(dataPath, wallTimeSeconds)
+            val store = loaded ?: Seeder.build(
+                defaultSeed,
+                clockMode = defaultClockMode,
+                wallTimeSeconds = wallTimeSeconds,
+            )
+            val sim = Simulator(store, dataPath, webhooks, wallTimeSeconds)
             if (loaded == null) Snapshot.save(store, dataPath)
             return sim
         }

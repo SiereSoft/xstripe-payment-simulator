@@ -81,6 +81,7 @@ class StateExportTest {
 
         val before = api.exportState()
         val initialRevision = before["state_revision"]!!.jsonPrimitive.long
+        assertEquals("free", before["clock"]!!.jsonObject["mode"]!!.jsonPrimitive.content)
         val requiredCollections = setOf(
             "customers",
             "payment_methods",

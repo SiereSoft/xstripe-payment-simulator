@@ -39,6 +39,10 @@ fun DataStore.toControlPlaneJson(): JsonObject = buildJsonObject {
     put("state_revision", revision)
     put("seed", seed)
     put("id_sequence", ids.count)
+    put("clock", buildJsonObject {
+        put("mode", clock.mode.wireValue)
+        put("current_time", clock.state.manualTime)
+    })
     put(
         "scenario",
         scenario?.let { exportJson.encodeToJsonElement(ScenarioState.serializer(), it).redacted() }

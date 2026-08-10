@@ -75,7 +75,10 @@ ITEMS = [
             headers=[("X-Siere-Control-Token", "{{controlToken}}")]),
         req("Reset (seed=1)", "POST", "/v1/admin/reset", query={"seed": 1}, no_auth=True),
         req("Reset duplicate-payments task", "POST", "/v1/admin/reset",
-            query={"seed": 42, "scenario": "duplicate_payments"}, no_auth=True),
+            query={"seed": 42, "scenario": "duplicate_payments", "clock_mode": "manual"}, no_auth=True),
+        req("Advance manual clock (1 hour)", "POST", "/v1/admin/clock/advance",
+            query={"seconds": 3600}, no_auth=True,
+            headers=[("X-Siere-Control-Token", "{{controlToken}}")]),
     ]),
     folder("Customers", [
         req("Create customer", "POST", "/v1/customers",

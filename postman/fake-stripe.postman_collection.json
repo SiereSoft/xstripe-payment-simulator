@@ -180,7 +180,7 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments",
+              "raw": "{{baseUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments&clock_mode=manual",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -197,6 +197,43 @@
                 {
                   "key": "scenario",
                   "value": "duplicate_payments"
+                },
+                {
+                  "key": "clock_mode",
+                  "value": "manual"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Advance manual clock (1 hour)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/clock/advance?seconds=3600",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "clock",
+                "advance"
+              ],
+              "query": [
+                {
+                  "key": "seconds",
+                  "value": "3600"
                 }
               ]
             },

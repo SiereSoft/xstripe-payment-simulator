@@ -31,6 +31,7 @@ private data class StoreSnapshot(
     val seed: Long,
     val idCount: Int,
     val revision: Long = 0,
+    val clock: SimulatorClockState = SimulatorClockState(),
     val scenario: ScenarioState? = null,
     val customers: List<Customer>,
     val paymentMethods: List<PaymentMethod>,
@@ -66,6 +67,7 @@ object Snapshot {
             seed = store.seed,
             idCount = store.ids.count,
             revision = store.revision,
+            clock = store.clock.state,
             scenario = store.scenario,
             customers = store.customers.values.toList(),
             paymentMethods = store.paymentMethods.values.toList(),
@@ -87,11 +89,20 @@ object Snapshot {
         Files.move(tmp, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
     }
 
-    fun load(path: Path): DataStore? {
+    fun load(
+        path: Path,
+        wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+    ): DataStore? {
         if (!Files.exists(path)) return null
         return try {
             val snap = json.decodeFromString(StoreSnapshot.serializer(), String(Files.readAllBytes(path)))
-            DataStore(snap.seed, idCount = snap.idCount, revision = snap.revision).apply {
+            DataStore(
+                snap.seed,
+                idCount = snap.idCount,
+                revision = snap.revision,
+                clockState = snap.clock,
+                wallTimeSeconds = wallTimeSeconds,
+            ).apply {
                 scenario = snap.scenario
                 snap.customers.forEach { customers[it.id] = it }
                 snap.paymentMethods.forEach { paymentMethods[it.id] = it }

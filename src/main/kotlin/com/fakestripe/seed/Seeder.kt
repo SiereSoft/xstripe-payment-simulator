@@ -12,7 +12,9 @@ import com.fakestripe.model.Product
 import com.fakestripe.model.Subscription
 import com.fakestripe.model.SubscriptionItem
 import com.fakestripe.store.DataStore
+import com.fakestripe.store.ClockMode
 import com.fakestripe.store.ScenarioState
+import com.fakestripe.store.SimulatorClock
 import java.util.Random
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -52,8 +54,17 @@ object Seeder {
         Person("Priya Patel", "priya@example.com"),
     )
 
-    fun build(seed: Long, scenario: String? = null): DataStore {
-        val store = DataStore(seed)
+    fun build(
+        seed: Long,
+        scenario: String? = null,
+        clockMode: ClockMode = ClockMode.defaultFor(scenario),
+        wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+    ): DataStore {
+        val store = DataStore(
+            seed,
+            clockState = SimulatorClock.resetState(clockMode, seed, scenario),
+            wallTimeSeconds = wallTimeSeconds,
+        )
         val rng = Random(seed)
 
         roster.forEachIndexed { i, person ->

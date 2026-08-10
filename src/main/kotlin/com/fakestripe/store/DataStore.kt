@@ -21,8 +21,15 @@ import kotlinx.serialization.json.JsonObject
  * listing is stable; a single [DataStore] instance is guarded by one lock in
  * [Simulator], which keeps ID generation and mutations deterministic.
  */
-class DataStore(val seed: Long, idCount: Int = 0, var revision: Long = 0) {
+class DataStore(
+    val seed: Long,
+    idCount: Int = 0,
+    var revision: Long = 0,
+    clockState: SimulatorClockState = SimulatorClockState(),
+    wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+) {
     val ids = IdGenerator(seed, idCount)
+    val clock = SimulatorClock(clockState, wallTimeSeconds)
     var scenario: ScenarioState? = null
 
     val customers = LinkedHashMap<String, Customer>()
@@ -56,8 +63,8 @@ class DataStore(val seed: Long, idCount: Int = 0, var revision: Long = 0) {
     fun newClientSecret(objectId: String): String =
         objectId + "_secret_" + ids.next("s").substringAfter('_')
 
-    /** Wall-clock seconds for runtime-created objects (timestamps are ignored by checkers). */
-    fun now(): Long = System.currentTimeMillis() / 1000
+    /** All runtime-created object timestamps flow through the simulator clock. */
+    fun now(): Long = clock.now()
 
     fun requireCustomer(id: String): Customer =
         customers[id]?.takeIf { !it.deleted } ?: throw StripeException.resourceMissing("customer", id)
