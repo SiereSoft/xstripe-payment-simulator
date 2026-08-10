@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonObject
  * listing is stable; a single [DataStore] instance is guarded by one lock in
  * [Simulator], which keeps ID generation and mutations deterministic.
  */
-class DataStore(val seed: Long, idCount: Int = 0) {
+class DataStore(val seed: Long, idCount: Int = 0, var revision: Long = 0) {
     val ids = IdGenerator(seed, idCount)
 
     val customers = LinkedHashMap<String, Customer>()

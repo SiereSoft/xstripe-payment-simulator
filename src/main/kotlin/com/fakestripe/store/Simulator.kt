@@ -29,6 +29,7 @@ class Simulator(
         try {
             block(store)
         } finally {
+            store.revision += 1
             Snapshot.save(store, dataPath)
             drainEvents()
         }
@@ -50,7 +51,8 @@ class Simulator(
 
     fun reset(seed: Long) {
         synchronized(lock) {
-            store = Seeder.build(seed)
+            val nextRevision = store.revision + 1
+            store = Seeder.build(seed).also { it.revision = nextRevision }
             Snapshot.save(store, dataPath)
         }
     }
@@ -64,6 +66,7 @@ class Simulator(
     fun recordIdempotency(key: String, fingerprint: String, status: Int, body: String) {
         synchronized(lock) {
             store.idempotency[key] = IdempotencyRecord(fingerprint, status, body)
+            store.revision += 1
             Snapshot.save(store, dataPath)
         }
     }

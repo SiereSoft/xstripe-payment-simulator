@@ -25,6 +25,10 @@
       "value": "sk_test_123"
     },
     {
+      "key": "controlToken",
+      "value": "gym_control_local"
+    },
+    {
       "key": "customerId",
       "value": ""
     },
@@ -110,6 +114,32 @@
                 "v1",
                 "admin",
                 "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Privileged full-state export",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Siere-Control-Token",
+                "value": "{{controlToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/admin/state",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "state"
               ]
             },
             "auth": {

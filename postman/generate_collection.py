@@ -71,6 +71,8 @@ ITEMS = [
     folder("Admin", [
         req("Liveness", "GET", "/healthz", no_auth=True),
         req("World summary", "GET", "/v1/admin/health", no_auth=True),
+        req("Privileged full-state export", "GET", "/v1/admin/state", no_auth=True,
+            headers=[("X-Siere-Control-Token", "{{controlToken}}")]),
         req("Reset (seed=1)", "POST", "/v1/admin/reset", query={"seed": 1}, no_auth=True),
     ]),
     folder("Customers", [
@@ -249,6 +251,7 @@ COLLECTION = {
     "variable": [
         {"key": "baseUrl", "value": "http://localhost:12111"},
         {"key": "apiKey", "value": "sk_test_123"},
+        {"key": "controlToken", "value": "gym_control_local"},
         {"key": "customerId", "value": ""},
         {"key": "paymentMethodId", "value": ""},
         {"key": "paymentIntentId", "value": ""},

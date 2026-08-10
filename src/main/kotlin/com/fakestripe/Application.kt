@@ -61,11 +61,12 @@ fun Application.module() {
         url = System.getenv("FAKE_STRIPE_WEBHOOK_URL"),
         secret = System.getenv("FAKE_STRIPE_WEBHOOK_SECRET") ?: "whsec_test",
     )
-    module(Simulator.boot(dataPath, seed, webhooks))
+    val controlToken = System.getenv("FAKE_STRIPE_CONTROL_TOKEN")
+    module(Simulator.boot(dataPath, seed, webhooks), controlToken)
 }
 
 /** Wires the whole API around a given [Simulator]. Tests inject their own. */
-fun Application.module(sim: Simulator) {
+fun Application.module(sim: Simulator, controlToken: String? = null) {
     install(CallLogging) { level = Level.INFO }
     install(DefaultHeaders) {
         header("Stripe-Version", "2024-06-20")
@@ -138,7 +139,7 @@ fun Application.module(sim: Simulator) {
     }
 
     routing {
-        adminRoutes(sim)
+        adminRoutes(sim, controlToken)
         customerRoutes(sim)
         paymentMethodRoutes(sim)
         paymentIntentRoutes(sim)

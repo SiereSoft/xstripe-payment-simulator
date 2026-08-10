@@ -8,6 +8,9 @@ services:
       # Deterministic starting world. Change and `docker compose up --build`
       # (or call POST /v1/admin/reset?seed=N at runtime) to get a different world.
       FAKE_STRIPE_SEED: "1"
+      # Local-only controller credential for Gym reset/verification tooling.
+      # Override with a random value in any shared or pilot environment.
+      FAKE_STRIPE_CONTROL_TOKEN: "gym_control_local"
     volumes:
       # Persist the in-memory state snapshot across restarts.
       - ./data:/data

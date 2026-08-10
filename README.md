@@ -2,7 +2,7 @@
 
 **A stateful, Stripe-compatible payments API you can run locally — for building, testing, and training AI agents against a payment backend that actually remembers what happened.**
 
-![tests](https://img.shields.io/badge/tests-17%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-29%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![stack](https://img.shields.io/badge/Kotlin-Ktor-7F52FF)
 ![run](https://img.shields.io/badge/run-docker%20compose%20up-2496ED)
@@ -44,7 +44,7 @@ The loop that makes this a *gym* rather than a mock:
 
 1. **Seed** a known world — `POST /v1/admin/reset?seed=N` yields the same customers, cards, and history every time.
 2. **Act** — point an agent (via the Stripe SDKs, an MCP tool layer, or raw HTTP) at the API and let it work: create a customer, take a payment, refund the smaller of two charges, upgrade a subscription…
-3. **Verify** — inspect the resulting state and score the outcome. Because the world is deterministic and stateful, a checker can assert *exactly* what should have changed — and nothing else.
+3. **Verify** — use the privileged, redacted `GET /v1/admin/state` export to compare the complete world before and after. Because the world is deterministic and stateful, a checker can assert *exactly* what should have changed — and nothing else.
 
 Packaged task definitions + automatic checkers and a worked training/eval example are on the [roadmap](#roadmap); the primitives they need — deterministic seeding, full state transitions, signed webhooks — are already here.
 
@@ -95,13 +95,14 @@ All configuration is via environment variables:
 | `HOST` | `0.0.0.0` | Bind address |
 | `FAKE_STRIPE_SEED` | `1` | Seed for the initial world (only used when no snapshot exists) |
 | `FAKE_STRIPE_DATA` | `data/state.json` | Where the state snapshot is written |
+| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables privileged `GET /v1/admin/state`; callers must send the same value in `X-Siere-Control-Token` |
 | `FAKE_STRIPE_WEBHOOK_URL` | _(none)_ | If set, signed events are POSTed here (also settable at runtime via `/v1/admin/webhook`) |
 | `FAKE_STRIPE_WEBHOOK_SECRET` | `whsec_test` | Secret used to sign webhook payloads |
 | `FAKE_STRIPE_PUBLIC_URL` | _(request host)_ | Base URL put in hosted checkout/portal `url`s — set it when a browser reaches the simulator at a different address than the API caller does |
 
 ### Authentication
 
-Every `/v1` business endpoint requires an API key, exactly like real Stripe — send `Authorization: Bearer sk_test_...`. Any `sk_...` value is accepted (this is a fake; we don't validate which key); a **missing** key returns `401 authentication_error`. The admin/health endpoints (`/`, `/healthz`, `/v1/admin/*`) are keyless so reset and training stay frictionless. The official SDKs send a key automatically.
+Every `/v1` business endpoint requires an API key, exactly like real Stripe — send `Authorization: Bearer sk_test_...`. Any `sk_...` value is accepted (this is a fake; we don't validate which key); a **missing** key returns `401 authentication_error`. Health, reset, renewal, and webhook-admin endpoints remain keyless for local compatibility. The full-state export is different: it is disabled unless `FAKE_STRIPE_CONTROL_TOKEN` is configured and returns `403` unless the caller supplies that token in `X-Siere-Control-Token`. The official SDKs send the business API key automatically.
 
 ---
 
@@ -133,7 +134,7 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Events** — `GET /v1/events/{id}`, `GET /v1/events`
 
-**Admin (non-Stripe, keyless)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`
+**Admin (non-Stripe)** — `GET /healthz`, `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`; privileged `GET /v1/admin/state`
 
 Cross-cutting: **idempotency** (`Idempotency-Key` header on POSTs) and **signed webhooks** (see below).
 
@@ -193,6 +194,38 @@ curl -X POST "http://localhost:12111/v1/admin/reset?seed=42"
 ## Persistence
 
 State lives in memory and is snapshotted to `FAKE_STRIPE_DATA` after every mutation (including recorded declines). On startup the snapshot is loaded if present, so **a customer created before a restart is still there afterward**. Delete the snapshot (or call `reset`) to start clean.
+
+Each persisted mutation advances a monotonic `state_revision`. The revision is
+stored in the snapshot, survives process restarts, advances across resets, and
+does not change when state is merely exported.
+
+## Privileged state export
+
+Gym verifiers need one atomic before/after view rather than dozens of paginated
+provider calls. Configure a controller token and call the simulator-only export:
+
+```bash
+FAKE_STRIPE_CONTROL_TOKEN=gym_control_local ./gradlew run
+
+curl -s http://localhost:12111/v1/admin/state \
+  -H "X-Siere-Control-Token: gym_control_local"
+```
+
+The response contains `state_revision`, the deterministic ID sequence, and every
+customer, payment method, payment intent, charge, refund, product, price,
+subscription, invoice, checkout session, billing-portal session, event, and
+idempotency record. Raw card numbers, client secrets, raw idempotency keys, and
+secret/password/token fields are removed. Idempotency keys are represented only
+by SHA-256 so duplicate-submission checks remain possible without revealing the
+credential-like input.
+
+This endpoint is a **Gym control-plane API, not a Stripe API**. Never put the
+controller token in an Android app, model context, task pack, APK, or provider
+request. Pilot packaging must inject a random token only into the simulator and
+runner and must keep admin traffic on the controller path. The later control-plane
+isolation task adds a separate host-only listener and an automated network test;
+the token is the current defense against access through the shared development
+listener.
 
 ## Error shapes
 
@@ -308,7 +341,7 @@ The strongest proof of realism is Stripe's **own client libraries, unmodified**,
 
 ## Tested
 
-Twenty-five tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
+Twenty-nine tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
 
 ---
 

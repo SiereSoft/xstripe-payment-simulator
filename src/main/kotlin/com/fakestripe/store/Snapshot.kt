@@ -30,6 +30,7 @@ import java.nio.file.Path
 private data class StoreSnapshot(
     val seed: Long,
     val idCount: Int,
+    val revision: Long = 0,
     val customers: List<Customer>,
     val paymentMethods: List<PaymentMethod>,
     val paymentIntents: List<PaymentIntent>,
@@ -55,6 +56,7 @@ object Snapshot {
             val snap = StoreSnapshot(
                 seed = store.seed,
                 idCount = store.ids.count,
+                revision = store.revision,
                 customers = store.customers.values.toList(),
                 paymentMethods = store.paymentMethods.values.toList(),
                 paymentIntents = store.paymentIntents.values.toList(),
@@ -82,7 +84,7 @@ object Snapshot {
         if (!Files.exists(path)) return null
         return try {
             val snap = json.decodeFromString(StoreSnapshot.serializer(), String(Files.readAllBytes(path)))
-            DataStore(snap.seed, idCount = snap.idCount).apply {
+            DataStore(snap.seed, idCount = snap.idCount, revision = snap.revision).apply {
                 snap.customers.forEach { customers[it.id] = it }
                 snap.paymentMethods.forEach { paymentMethods[it.id] = it }
                 snap.paymentIntents.forEach { paymentIntents[it.id] = it }
