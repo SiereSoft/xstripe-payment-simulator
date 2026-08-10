@@ -33,6 +33,10 @@
       "value": "gym_control_local"
     },
     {
+      "key": "episodeId",
+      "value": "postman-local-001"
+    },
+    {
       "key": "customerId",
       "value": ""
     },
@@ -167,7 +171,7 @@
               }
             ],
             "url": {
-              "raw": "{{controlUrl}}/v1/admin/reset?seed=1",
+              "raw": "{{controlUrl}}/v1/admin/reset?seed=1&episode_id={{episodeId}}",
               "host": [
                 "{{controlUrl}}"
               ],
@@ -180,6 +184,10 @@
                 {
                   "key": "seed",
                   "value": "1"
+                },
+                {
+                  "key": "episode_id",
+                  "value": "{{episodeId}}"
                 }
               ]
             },
@@ -199,7 +207,7 @@
               }
             ],
             "url": {
-              "raw": "{{controlUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments&clock_mode=manual",
+              "raw": "{{controlUrl}}/v1/admin/reset?seed=42&scenario=duplicate_payments&clock_mode=manual&episode_id={{episodeId}}",
               "host": [
                 "{{controlUrl}}"
               ],
@@ -220,6 +228,10 @@
                 {
                   "key": "clock_mode",
                   "value": "manual"
+                },
+                {
+                  "key": "episode_id",
+                  "value": "{{episodeId}}"
                 }
               ]
             },
@@ -1824,12 +1836,12 @@
       "name": "Events",
       "item": [
         {
-          "name": "List events",
+          "name": "List events for episode",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/v1/events?limit=10",
+              "raw": "{{baseUrl}}/v1/events?limit=10&episode_id={{episodeId}}",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1841,6 +1853,10 @@
                 {
                   "key": "limit",
                   "value": "10"
+                },
+                {
+                  "key": "episode_id",
+                  "value": "{{episodeId}}"
                 }
               ]
             }

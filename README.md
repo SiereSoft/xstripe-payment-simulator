@@ -2,7 +2,7 @@
 
 **A stateful, Stripe-compatible payments API you can run locally — for building, testing, and training AI agents against a payment backend that actually remembers what happened.**
 
-![tests](https://img.shields.io/badge/tests-42%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-45%20passing-brightgreen)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![stack](https://img.shields.io/badge/Kotlin-Ktor-7F52FF)
 ![run](https://img.shields.io/badge/run-docker%20compose%20up-2496ED)
@@ -42,7 +42,7 @@ So we don't compete with `stripe-mock` — we **use it as a validation oracle**,
 
 The loop that makes this a *gym* rather than a mock:
 
-1. **Seed** a known world — `POST /v1/admin/reset?seed=N&scenario=duplicate_payments` yields the same task-ready customers, cards, and history every time.
+1. **Seed** a known world — `POST /v1/admin/reset?seed=N&scenario=duplicate_payments&episode_id=run-123` yields the same task-ready customers, cards, and history every time.
 2. **Act** — point an agent (via the Stripe SDKs, an MCP tool layer, or raw HTTP) at the API and let it work: create a customer, take a payment, refund the smaller of two charges, upgrade a subscription…
 3. **Verify** — use the privileged, redacted `GET /v1/admin/state` export to compare the complete world before and after. Because the world is deterministic and stateful, a checker can assert *exactly* what should have changed — and nothing else.
 
@@ -141,7 +141,7 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Customer portal** — `POST /v1/billing_portal/sessions` — plus its hosted page
 
-**Events** — `GET /v1/events/{id}`, `GET /v1/events`
+**Events** — `GET /v1/events/{id}`, `GET /v1/events`; lists can be filtered with `episode_id`
 
 **Controller (non-Stripe, port 12112)** — `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID][&clock_mode=free|manual]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`, `GET /v1/admin/state`, and `POST /v1/admin/clock/advance?seconds=N`. All require the controller token. `GET /healthz` exists on both listeners.
 
@@ -196,9 +196,10 @@ The card **number** decides the outcome (Stripe's documented test cards). You ca
 Training requires reproducible starting states. `FAKE_STRIPE_SEED=N` (or `POST /v1/admin/reset?seed=N`) builds a world of customers, saved cards and past payments where **the same seed always yields the same objects, down to their IDs**. IDs are drawn from a seeded PRNG, and the generator's position is snapshotted so it resumes deterministically after a restart.
 
 ```bash
-curl -X POST "http://localhost:12112/v1/admin/reset?seed=42" \
+curl -X POST "http://localhost:12112/v1/admin/reset?seed=42&episode_id=run-42-001" \
   -H "X-Siere-Control-Token: gym_control_local"
-# -> { "object": "admin.reset", "seed": 42, "scenario": null, "state_revision": 1,
+# -> { "object": "admin.reset", "seed": 42, "episode_id": "run-42-001",
+#      "scenario": null, "state_revision": 1,
 #      "clock": { "mode": "free", "current_time": ... }, "task_context": {}, ... }
 ```
 
@@ -219,9 +220,10 @@ seed while the same `{seed, scenario}` pair reproduces exactly.
 
 ```bash
 curl -X POST \
-  "http://localhost:12112/v1/admin/reset?seed=42&scenario=duplicate_payments" \
+  "http://localhost:12112/v1/admin/reset?seed=42&scenario=duplicate_payments&episode_id=run-42-001" \
   -H "X-Siere-Control-Token: gym_control_local"
-# -> { "object": "admin.reset", "seed": 42, "scenario": "duplicate_payments",
+# -> { "object": "admin.reset", "seed": 42, "episode_id": "run-42-001",
+#      "scenario": "duplicate_payments",
 #      "state_revision": 1, "clock": { "mode": "manual", "current_time": ... },
 #      "task_context": { "customer_name": "..." }, ... }
 ```
@@ -229,6 +231,24 @@ curl -X POST \
 An unsupported scenario returns Stripe-shaped HTTP `400` without replacing the
 current world. Reset persists the complete candidate snapshot before returning
 success, so a failed write is never acknowledged and the live world stays intact.
+
+### Episode correlation
+
+Controllers may supply `episode_id` on reset. IDs are 1–128 characters using
+letters, numbers, `.`, `_`, `:`, or `-`; omitting the parameter clears correlation
+for compatibility. The value persists with the snapshot, is stamped onto every
+internal event trace, and appears in request logs as `episode_id=<value>`.
+
+Provider Event JSON remains Stripe-compatible and does not expose the episode ID.
+Controllers see it in `GET /v1/admin/state`, while event queries can select the
+current episode without changing their response shape:
+
+```bash
+BASE=http://localhost:12111
+KEY="Authorization: Bearer sk_test_123"
+curl -s "$BASE/v1/events?episode_id=run-42-001" -H "$KEY"
+docker compose logs fake-stripe | grep 'episode_id=run-42-001'
+```
 
 ### Episode clock
 
@@ -272,7 +292,7 @@ curl -s http://localhost:12112/v1/admin/state \
   -H "X-Siere-Control-Token: gym_control_local"
 ```
 
-The response contains `state_revision`, persisted clock state, scenario verifier metadata, the
+The response contains `episode_id`, `state_revision`, persisted clock state, scenario verifier metadata, the
 deterministic ID sequence, and every
 customer, payment method, payment intent, charge, refund, product, price,
 subscription, invoice, checkout session, billing-portal session, event, and
@@ -348,7 +368,7 @@ Open that URL and you get a plain HTML page (no JavaScript) showing the amount, 
 
 ## Webhooks & events
 
-Mutations record **Events** (`customer.created`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`, `checkout.session.completed`, `customer.subscription.created|updated|deleted`, …), retrievable at `/v1/events`. If a webhook URL is configured (env or `POST /v1/admin/webhook`), each event is POSTed to it with a real `Stripe-Signature: t=<ts>,v1=<hmac>` header — HMAC-SHA256 over `"<ts>.<body>"` with the endpoint secret, exactly what `stripe.Webhook.constructEvent` verifies. Delivery is asynchronous and never blocks the API response.
+Mutations record **Events** (`customer.created`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`, `checkout.session.completed`, `customer.subscription.created|updated|deleted`, …), retrievable at `/v1/events` and filterable by `episode_id`. Correlation stays internal and is deliberately omitted from provider Event JSON. If a webhook URL is configured (env or `POST /v1/admin/webhook`), each event is POSTed to it with a real `Stripe-Signature: t=<ts>,v1=<hmac>` header — HMAC-SHA256 over `"<ts>.<body>"` with the endpoint secret, exactly what `stripe.Webhook.constructEvent` verifies. Delivery is asynchronous and never blocks the API response.
 
 ```bash
 # Point deliveries at your receiver, then watch signed events arrive
@@ -405,7 +425,7 @@ The strongest proof of realism is Stripe's **own client libraries, unmodified**,
 
 ## Tested
 
-Forty-two tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, **free/manual clock determinism, authorization, persistence, rollback, and time-driven expiry**, **actor/controller route and listener isolation**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
+Forty-five tests run through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, **free/manual clock determinism, authorization, persistence, rollback, and time-driven expiry**, **actor/controller route and listener isolation**, **episode-correlated logs/events with unchanged provider shapes**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). The **stripe-python** suite adds eleven more. Persistence-across-restart and cross-seed determinism are verified against the running server.
 
 ---
 

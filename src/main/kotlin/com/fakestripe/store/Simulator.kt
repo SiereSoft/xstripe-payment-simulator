@@ -3,6 +3,8 @@ package com.fakestripe.store
 import com.fakestripe.seed.Seeder
 import com.fakestripe.webhook.WebhookDispatcher
 import java.nio.file.Path
+import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 
 /**
  * Owns the live [DataStore] and serializes all access through a single lock.
@@ -21,6 +23,7 @@ class Simulator(
     private val wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
 ) {
     private val lock = Any()
+    private val log = LoggerFactory.getLogger(Simulator::class.java)
 
     fun <T> read(block: (DataStore) -> T): T = synchronized(lock) { block(store) }
 
@@ -50,15 +53,38 @@ class Simulator(
         if (secret != null) webhooks.secret = secret
     }
 
-    fun reset(seed: Long, scenario: String? = null, clockMode: ClockMode? = null) {
+    fun reset(
+        seed: Long,
+        scenario: String? = null,
+        clockMode: ClockMode? = null,
+        episodeId: String? = null,
+    ) {
         synchronized(lock) {
             val nextRevision = store.revision + 1
             val mode = clockMode ?: ClockMode.defaultFor(scenario)
-            val candidate = Seeder.build(seed, scenario, mode, wallTimeSeconds).also {
+            val candidate = Seeder.build(
+                seed,
+                scenario,
+                mode,
+                wallTimeSeconds,
+                episodeId,
+            ).also {
                 it.revision = nextRevision
             }
             Snapshot.saveOrThrow(candidate, dataPath)
             store = candidate
+            logEpisodeReset(seed, scenario, episodeId)
+        }
+    }
+
+    private fun logEpisodeReset(seed: Long, scenario: String?, episodeId: String?) {
+        val previousEpisodeId = MDC.get("episode_id")
+        try {
+            MDC.put("episode_id", episodeId ?: "none")
+            log.info("Reset simulator world: seed={}, scenario={}", seed, scenario ?: "none")
+        } finally {
+            if (previousEpisodeId == null) MDC.remove("episode_id")
+            else MDC.put("episode_id", previousEpisodeId)
         }
     }
 
@@ -90,6 +116,7 @@ class Simulator(
     }
 
     val seed: Long get() = synchronized(lock) { store.seed }
+    val episodeId: String? get() = synchronized(lock) { store.episodeId }
 
     /** Idempotency: look up a prior response by key. */
     fun idempotencyLookup(key: String): IdempotencyRecord? = synchronized(lock) { store.idempotency[key] }

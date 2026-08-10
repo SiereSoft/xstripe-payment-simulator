@@ -27,6 +27,7 @@ class DataStore(
     var revision: Long = 0,
     clockState: SimulatorClockState = SimulatorClockState(),
     wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+    val episodeId: String? = null,
 ) {
     val ids = IdGenerator(seed, idCount)
     val clock = SimulatorClock(clockState, wallTimeSeconds)
@@ -51,7 +52,7 @@ class DataStore(
 
     /** Record an event: retrievable via the API, persisted, and queued for webhook delivery. */
     fun recordEvent(type: String, dataObject: JsonObject): Event {
-        val event = Event(newId("evt"), now(), type, dataObject)
+        val event = Event(newId("evt"), now(), type, dataObject, episodeId)
         events[event.id] = event
         pendingEvents.add(event)
         return event

@@ -29,7 +29,8 @@ pytest -v
 | `FAKE_STRIPE_CONTROL_TOKEN` | `gym_control_local` | Controller credential sent only by the reset fixture |
 | `FAKE_STRIPE_KEY` | `sk_test_123` | Any `sk_...` value; the simulator accepts any key |
 
-The suite resets the world to `seed=1` at the start of the session (`conftest.py`).
+The suite resets the world to `seed=1` with episode ID `sdk-python` at the start
+of the session (`conftest.py`).
 
 ## What it covers
 

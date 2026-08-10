@@ -17,7 +17,11 @@ fun Route.eventRoutes(sim: Simulator) {
         val params = call.queryParams()
         val json = sim.read { store ->
             val type = params.opt("type")
-            val all = store.events.values.filter { type == null || it.type == type }
+            val episodeId = params.opt("episode_id")
+            val all = store.events.values.filter {
+                (type == null || it.type == type) &&
+                    (episodeId == null || it.episodeId == episodeId)
+            }
             store.paginated(all, "/v1/events", params, { it.id }, { it.created }, { it.toApiJson() })
         }
         call.respondStripe(json)

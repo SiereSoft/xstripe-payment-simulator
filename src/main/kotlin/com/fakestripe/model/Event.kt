@@ -1,6 +1,7 @@
 package com.fakestripe.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -17,6 +18,7 @@ data class Event(
     val created: Long,
     val type: String,
     val dataObject: JsonObject,
+    @SerialName("episode_id") val episodeId: String? = null,
 ) {
     fun toApiJson(): JsonObject = buildJsonObject {
         put("id", id)

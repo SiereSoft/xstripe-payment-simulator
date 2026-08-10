@@ -196,7 +196,7 @@ def reset_sim():
     try:
         urllib.request.urlopen(
             urllib.request.Request(
-                f"{CONTROL_BASE}/v1/admin/reset?seed=1",
+                f"{CONTROL_BASE}/v1/admin/reset?seed=1&episode_id=conformance",
                 method="POST",
                 headers={"X-Siere-Control-Token": CONTROL_TOKEN},
             ),

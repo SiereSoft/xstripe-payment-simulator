@@ -50,6 +50,7 @@ fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
         call.respondStripe(sim.read { store ->
             buildJsonObject {
                 put("status", "ok")
+                put("episode_id", store.episodeId)
                 put("seed", store.seed)
                 put("customers", store.customers.size)
                 put("payment_methods", store.paymentMethods.size)
@@ -97,6 +98,7 @@ fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
             put("current_time", advanced.currentTime)
             put("advanced_by", seconds)
             put("state_revision", advanced.revision)
+            put("episode_id", sim.episodeId)
         })
     }
 
@@ -111,6 +113,7 @@ fun Route.adminRoutes(sim: Simulator, controlToken: String?) {
 }
 
 private const val CONTROL_TOKEN_HEADER = "X-Siere-Control-Token"
+private val EPISODE_ID_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 internal suspend fun ApplicationCall.requireController(controlToken: String?): Boolean {
     if (controlToken == null) {
@@ -161,11 +164,19 @@ private suspend fun handleReset(sim: Simulator, call: ApplicationCall) {
             param = "clock_mode",
         )
     } ?: ClockMode.defaultFor(scenario)
-    sim.reset(seed, scenario, clockMode)
+    val episodeId = query.opt("episode_id") ?: form.opt("episode_id")
+    if (episodeId != null && !EPISODE_ID_PATTERN.matches(episodeId)) {
+        throw StripeException.invalidRequest(
+            "The episode_id parameter must be 1-128 characters using letters, numbers, '.', '_', ':', or '-'.",
+            param = "episode_id",
+        )
+    }
+    sim.reset(seed, scenario, clockMode, episodeId)
     call.respondStripe(sim.read { store ->
         buildJsonObject {
             put("object", "admin.reset")
             put("seed", seed)
+            put("episode_id", store.episodeId)
             put("scenario", store.scenario?.id)
             put("state_revision", store.revision)
             put("clock", clockJson(store))

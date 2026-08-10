@@ -13,6 +13,7 @@
     { "key": "baseUrl", "value": "http://localhost:12111" },
     { "key": "controlUrl", "value": "http://localhost:12112" },
     { "key": "controlToken", "value": "gym_control_local" },
+    { "key": "episodeId", "value": "postman-local-001" },
     { "key": "apiKey", "value": "sk_test_fake_stripe_123" },
     { "key": "customerId", "value": "" },
     { "key": "pmId", "value": "" },
@@ -71,16 +72,19 @@
           ]
         },
         {
-          "name": "Reset world (POST /v1/admin/reset?seed=42)",
+          "name": "Reset world (POST /v1/admin/reset?seed=42&episode_id={{episodeId}})",
           "request": {
             "method": "POST",
             "header": [{ "key": "X-Siere-Control-Token", "value": "{{controlToken}}" }],
             "body": { "mode": "urlencoded", "urlencoded": [] },
             "url": {
-              "raw": "{{controlUrl}}/v1/admin/reset?seed=42",
+              "raw": "{{controlUrl}}/v1/admin/reset?seed=42&episode_id={{episodeId}}",
               "host": ["{{controlUrl}}"],
               "path": ["v1", "admin", "reset"],
-              "query": [{ "key": "seed", "value": "42" }]
+              "query": [
+                { "key": "seed", "value": "42" },
+                { "key": "episode_id", "value": "{{episodeId}}" }
+              ]
             },
             "description": "Wipes and re-seeds the world deterministically. Same seed => identical objects, down to their IDs."
           },

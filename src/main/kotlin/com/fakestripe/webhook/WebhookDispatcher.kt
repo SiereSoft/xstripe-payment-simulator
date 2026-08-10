@@ -4,6 +4,7 @@ import com.fakestripe.model.Event
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -33,7 +34,17 @@ class WebhookDispatcher(url: String?, secret: String) {
         val payload = json.encodeToString(JsonElement.serializer(), event.toApiJson())
         val timestamp = event.created
         val signature = "t=$timestamp,v1=${sign("$timestamp.$payload")}"
-        pool.submit { post(target, payload, signature) }
+        pool.submit {
+            val previousEpisodeId = MDC.get("episode_id")
+            try {
+                if (event.episodeId == null) MDC.remove("episode_id")
+                else MDC.put("episode_id", event.episodeId)
+                post(target, payload, signature)
+            } finally {
+                if (previousEpisodeId == null) MDC.remove("episode_id")
+                else MDC.put("episode_id", previousEpisodeId)
+            }
+        }
     }
 
     /** HMAC-SHA256 hex of the signed payload, keyed by the endpoint secret. */

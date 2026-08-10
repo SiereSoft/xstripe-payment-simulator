@@ -133,7 +133,10 @@ private fun Application.configureApplication(
     controllerRoutes: Boolean,
     controlToken: String?,
 ) {
-    install(CallLogging) { level = Level.INFO }
+    install(CallLogging) {
+        level = Level.INFO
+        mdc("episode_id") { sim.episodeId }
+    }
     install(DefaultHeaders) {
         header("Stripe-Version", "2024-06-20")
         header("Server", "fake-stripe/0.1.0")

@@ -59,11 +59,13 @@ object Seeder {
         scenario: String? = null,
         clockMode: ClockMode = ClockMode.defaultFor(scenario),
         wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+        episodeId: String? = null,
     ): DataStore {
         val store = DataStore(
             seed,
             clockState = SimulatorClock.resetState(clockMode, seed, scenario),
             wallTimeSeconds = wallTimeSeconds,
+            episodeId = episodeId,
         )
         val rng = Random(seed)
 

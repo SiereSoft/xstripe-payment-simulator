@@ -35,8 +35,9 @@ private val camelBoundary = Regex("([a-z0-9])([A-Z])")
  */
 fun DataStore.toControlPlaneJson(): JsonObject = buildJsonObject {
     put("object", "admin.state")
-    put("schema_version", 1)
+    put("schema_version", 2)
     put("state_revision", revision)
+    put("episode_id", episodeId)
     put("seed", seed)
     put("id_sequence", ids.count)
     put("clock", buildJsonObject {

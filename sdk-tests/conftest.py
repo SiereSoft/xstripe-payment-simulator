@@ -24,7 +24,7 @@ stripe.api_key = KEY
 def reset_world():
     """Start every run from the same deterministic seeded world."""
     req = urllib.request.Request(
-        f"{CONTROL_BASE}/v1/admin/reset?seed=1",
+        f"{CONTROL_BASE}/v1/admin/reset?seed=1&episode_id=sdk-python",
         method="POST",
         headers={"X-Siere-Control-Token": CONTROL_TOKEN},
     )
