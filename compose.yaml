@@ -1,0 +1,28 @@
+services:
+  fake-stripe:
+    build: .
+    container_name: fake-stripe
+    ports:
+      - "12111:12111"
+      # Controller traffic is published only on host loopback. Actor clients
+      # receive only the provider base URL above.
+      - "127.0.0.1:12112:12112"
+    environment:
+      # The container publishes the provider API to the host, so it must bind
+      # all interfaces inside the container. Direct (non-Docker) runs default
+      # to loopback instead.
+      HOST: "0.0.0.0"
+      # Docker port forwarding reaches a container listener; publication above
+      # is what constrains the controller port to host loopback.
+      CONTROL_HOST: "0.0.0.0"
+      CONTROL_PORT: "12112"
+      # Deterministic starting world. Change and `docker compose up --build`
+      # (or call POST /v1/admin/reset?seed=N at runtime) to get a different world.
+      FAKE_STRIPE_SEED: "1"
+      # Controller credential for every Gym lifecycle/verification endpoint.
+      # Override with a random value in any shared or pilot environment:
+      #   FAKE_STRIPE_CONTROL_TOKEN=$(openssl rand -hex 24) docker compose up
+      FAKE_STRIPE_CONTROL_TOKEN: "${FAKE_STRIPE_CONTROL_TOKEN:-gym_control_local}"
+    volumes:
+      # Persist the in-memory state snapshot across restarts.
+      - ./data:/data

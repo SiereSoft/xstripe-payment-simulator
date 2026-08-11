@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in the simulator behaves incorrectly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security issues here — see
+        [SECURITY.md](https://github.com/SiereSoft/xstripe-payment-simulator/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what did the simulator do?
+      placeholder: |
+        POST /v1/refunds with amount greater than the charge returned 200 instead of 400.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: If this is a fidelity gap, link the relevant Stripe documentation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: A curl command or short script. Include the seed if it matters.
+      render: bash
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: Client
+      description: Which SDK and version, or raw HTTP?
+      placeholder: stripe-python 15.3.0 / stripe-java 33.1.0 / curl
+    validations:
+      required: true
+
+  - type: input
+    id: how-run
+    attributes:
+      label: How are you running it?
+      placeholder: docker compose up --build / ./gradlew run / installDist
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Redact anything sensitive first.
+      render: shell

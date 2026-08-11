@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v3
+
+      - name: Run tests (unit + unmodified stripe-java SDK)
+        run: ./gradlew --no-daemon test
+
+  sdk-python:
+    name: stripe-python SDK e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # The suite's session fixture resets the world through the controller, so the
+    # control plane has to be enabled — without a token it is disabled entirely
+    # and every reset returns 404.
+    env:
+      FAKE_STRIPE_CONTROL_TOKEN: ci_control_token
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Start the simulator
+        run: |
+          ./gradlew --no-daemon installDist
+          FAKE_STRIPE_DATA=/tmp/state.json ./build/install/fake-stripe/bin/fake-stripe &
+          for i in $(seq 1 30); do curl -sf http://localhost:12111/healthz && break; sleep 1; done
+          curl -sf http://localhost:12112/v1/admin/health \
+            -H "X-Siere-Control-Token: $FAKE_STRIPE_CONTROL_TOKEN" > /dev/null \
+            || { echo "control plane not reachable"; exit 1; }
+
+      - name: Run stripe-python suite
+        run: |
+          pip install -r sdk-tests/requirements.txt
+          FAKE_STRIPE_BASE=http://localhost:12111 pytest sdk-tests -q
+
+  postman:
+    name: Postman collection is in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The collection is generated, so a hand-edit (or a forgotten re-run after
+      # an endpoint change) must fail CI rather than drift silently.
+      - name: Regenerate and diff
+        run: |
+          python postman/generate_collection.py
+          git diff --exit-code -- postman/fake-stripe.postman_collection.json
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      # CodeQL reads workflow-run metadata; without this it fails with
+      # "Resource not accessible by integration".
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+
+      - name: Build
+        run: ./gradlew --no-daemon classes
+
+      - uses: github/codeql-action/analyze@v3
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

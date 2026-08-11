@@ -1,0 +1,24 @@
+Siere Payments Gym (xstripe-payment-simulator)
+Copyright 2026 Siere Soft LTD
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+---
+
+Not affiliated with, endorsed by, or sponsored by Stripe, Inc. "Stripe" and the
+Stripe API are trademarks of Stripe, Inc. This project is an independent
+simulator that imitates the observable behaviour of Stripe's public HTTP API,
+written from Stripe's public documentation, for local development, testing, and
+agent training/evaluation. It is not a Stripe product, contains no Stripe source
+code, offers no guarantee of complete or correct Stripe compatibility, and must
+never be used to process real payments.
+
+This software is provided for local development and isolated testing only. Its
+authentication and authorization are simulated, its state snapshots are stored
+in plaintext, and it is not PCI DSS compliant. Do not expose it to untrusted
+networks and never supply it with real cardholder data, credentials, personal
+information, or production data. See DISCLAIMER.md.
+
+The official Stripe SDKs (stripe-java, stripe-python) referenced by the test
+suites are the property of Stripe, Inc. and are used unmodified under their own
+licenses.

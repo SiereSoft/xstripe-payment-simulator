@@ -1,0 +1,49 @@
+name: Stripe fidelity gap
+description: The simulator's wire shape or behaviour differs from real Stripe.
+labels: [fidelity]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the simulator *works*, but not the way Stripe does — a field
+        name, type, error code, or state transition that would make an integration
+        behave differently against the real API.
+
+  - type: input
+    id: endpoint
+    attributes:
+      label: Endpoint
+      placeholder: POST /v1/subscriptions
+    validations:
+      required: true
+
+  - type: input
+    id: docs
+    attributes:
+      label: Stripe documentation link
+      description: The page that establishes the correct behaviour.
+      placeholder: https://docs.stripe.com/api/subscriptions/create
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-shape
+    attributes:
+      label: What Stripe returns
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-shape
+    attributes:
+      label: What the simulator returns
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Why it matters
+      description: What breaks in a real integration because of the difference?
