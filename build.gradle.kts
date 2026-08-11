@@ -14,7 +14,7 @@ repositories {
 }
 
 val ktorVersion = "2.3.12"
-val logbackVersion = "1.4.14"
+val logbackVersion = "1.6.1"
 val serializationVersion = "1.6.3"
 val nettyVersion = "4.1.136.Final"
 
