@@ -16,7 +16,7 @@ repositories {
 val ktorVersion = "2.3.12"
 val logbackVersion = "1.4.14"
 val serializationVersion = "1.6.3"
-val nettyVersion = "4.1.136.Final"
+val nettyVersion = "4.2.17.Final"
 
 dependencies {
     // Ktor 2.3.12 pulls Netty 4.1.111, which carries several advisories including
