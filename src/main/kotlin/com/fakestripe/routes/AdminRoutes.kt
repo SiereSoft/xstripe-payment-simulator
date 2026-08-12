@@ -114,7 +114,7 @@ private const val CONTROL_TOKEN_HEADER = "X-Siere-Control-Token"
 private val EPISODE_ID_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 
 internal suspend fun ApplicationCall.requireController(controlToken: String?): Boolean {
-    if (controlToken == null) {
+    if (controlToken.isNullOrBlank()) {
         respondStripe(
             adminError("The control plane is disabled. Set FAKE_STRIPE_CONTROL_TOKEN to enable it."),
             HttpStatusCode.NotFound,

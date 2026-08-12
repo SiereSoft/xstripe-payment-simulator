@@ -148,6 +148,20 @@ class SecurityRegressionTest {
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
 
+    /** A present-but-empty environment value must disable, never authorize, the controller. */
+    @Test
+    fun `blank control token disables the control plane`() = testApplication {
+        application { module(newSim(), controlToken = "  ") }
+
+        val noHeader = client.get("/v1/admin/state")
+        val blankHeader = client.get("/v1/admin/state") {
+            header("X-Siere-Control-Token", "  ")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, noHeader.status)
+        assertEquals(HttpStatusCode.NotFound, blankHeader.status)
+    }
+
     /** Unexpected failures must not echo internal detail back to the caller. */
     @Test
     fun `scenario errors do not leak internal messages`() = testApplication {

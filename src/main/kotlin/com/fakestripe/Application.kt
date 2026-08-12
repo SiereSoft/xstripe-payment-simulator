@@ -58,6 +58,7 @@ fun main() {
     val config = ServerConfig.from(System.getenv())
     val simulator = simulatorFromEnvironment()
     val controlToken = System.getenv("FAKE_STRIPE_CONTROL_TOKEN")
+        ?.takeUnless { it.isBlank() }
     val controller = embeddedServer(Netty, port = config.controllerPort, host = config.controllerHost) {
         controllerModule(simulator, controlToken)
     }
