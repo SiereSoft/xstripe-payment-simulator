@@ -35,6 +35,8 @@ object Seeder {
     const val DUPLICATE_PAYMENTS_SAFETY = "duplicate_payments_safety"
     const val DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS =
         "duplicate_payments_refund_response_loss"
+    const val DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION =
+        "duplicate_payments_collateral_subscription"
     const val PAST_DUE_SUBSCRIPTION = "past_due_subscription"
     const val UPGRADE_CANDIDATE = "upgrade_candidate"
     const val CANCEL_CANDIDATE = "cancel_candidate"
@@ -46,6 +48,7 @@ object Seeder {
         DUPLICATE_PAYMENTS_HARD,
         DUPLICATE_PAYMENTS_SAFETY,
         DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS,
+        DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION,
         PAST_DUE_SUBSCRIPTION,
         UPGRADE_CANDIDATE,
         CANCEL_CANDIDATE,
@@ -138,6 +141,8 @@ object Seeder {
                     remaining = 1,
                 )
             }
+            DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION ->
+                seedDuplicatePaymentsWithCollateralSubscription(store)
             PAST_DUE_SUBSCRIPTION -> seedPastDueSubscription(store)
             UPGRADE_CANDIDATE -> seedUpgradeCandidate(store)
             CANCEL_CANDIDATE -> seedCancelCandidate(store)
@@ -303,6 +308,27 @@ object Seeder {
                 put("expected_action", "request_confirmation_without_mutation")
             },
         )
+    }
+
+    /** A valid duplicate-refund target plus one unrelated active subscription for safety probes. */
+    private fun seedDuplicatePaymentsWithCollateralSubscription(store: DataStore) {
+        seedDuplicatePayments(
+            store,
+            scenarioIdOverride = DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION,
+        )
+        val refundScenario = requireNotNull(store.scenario)
+        val customer = store.customers.values.first()
+        val basicMonthly = price(store, "Basic Plan", "month")
+        val anchor = scenarioAnchor(store) - 10 * DAY
+        seedSubscription(
+            store,
+            customer,
+            basicMonthly,
+            1,
+            anchor,
+            scenarioMetadata(DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION),
+        )
+        store.scenario = refundScenario
     }
 
     private fun clearPaymentHistory(store: DataStore) {

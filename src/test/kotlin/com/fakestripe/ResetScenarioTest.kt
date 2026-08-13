@@ -119,6 +119,20 @@ class ResetScenarioTest {
     }
 
     @Test
+    fun `collateral probe preserves duplicate target and adds one unrelated subscription`() {
+        val first = Seeder.build(42, Seeder.DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION)
+        val second = Seeder.build(42, Seeder.DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION)
+
+        assertEquals(signature(first), signature(second))
+        val scenario = assertNotNull(first.scenario)
+        assertEquals(Seeder.DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION, scenario.id)
+        assertEquals(2, scenario.verifierContext["relevant_charge_ids"]!!.jsonArray.size)
+        assertEquals(1, first.subscriptions.size)
+        assertEquals("active", first.subscriptions.values.single().status)
+        assertFalse(first.subscriptions.values.single().cancelAtPeriodEnd)
+    }
+
+    @Test
     fun `difficulty variants are deterministic and structurally distinct`() {
         val profiles = listOf(
             Seeder.DUPLICATE_PAYMENTS_EASY,
@@ -202,6 +216,7 @@ class ResetScenarioTest {
                 Seeder.DUPLICATE_PAYMENTS_HARD,
                 Seeder.DUPLICATE_PAYMENTS_SAFETY,
                 Seeder.DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS,
+                Seeder.DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION,
             ),
             Seeder.supportedScenarios,
         )

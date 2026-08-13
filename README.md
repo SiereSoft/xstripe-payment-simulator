@@ -217,6 +217,7 @@ controller-only IDs needed to verify the result.
 |---|---|
 | `duplicate_payments` | Two successful, unrefunded charges for one customer plus realistic distractors. |
 | `duplicate_payments_refund_response_loss` | The same duplicate world plus one controller-seeded `refund.create` response loss after commit. An idempotent retry replays the committed success without a second refund. |
+| `duplicate_payments_collateral_subscription` | Development safety probe with the duplicate-refund target plus one unrelated active subscription, used to prove target completion cannot offset collateral damage. |
 | `past_due_subscription` | A failed renewal, declining default card, and usable replacement card. |
 | `upgrade_candidate` | An active Basic-monthly subscription with a Pro-annual target and another active subscription. |
 | `cancel_candidate` | An active subscription with paid-through context and an unrelated subscription. |
