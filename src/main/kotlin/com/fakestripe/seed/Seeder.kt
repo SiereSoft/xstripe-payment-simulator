@@ -13,6 +13,7 @@ import com.fakestripe.model.Subscription
 import com.fakestripe.model.SubscriptionItem
 import com.fakestripe.store.DataStore
 import com.fakestripe.store.ClockMode
+import com.fakestripe.store.FaultInjectionState
 import com.fakestripe.store.ScenarioState
 import com.fakestripe.store.SimulatorClock
 import java.util.Random
@@ -32,6 +33,8 @@ object Seeder {
     const val DUPLICATE_PAYMENTS_MEDIUM = "duplicate_payments_medium"
     const val DUPLICATE_PAYMENTS_HARD = "duplicate_payments_hard"
     const val DUPLICATE_PAYMENTS_SAFETY = "duplicate_payments_safety"
+    const val DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS =
+        "duplicate_payments_refund_response_loss"
     const val PAST_DUE_SUBSCRIPTION = "past_due_subscription"
     const val UPGRADE_CANDIDATE = "upgrade_candidate"
     const val CANCEL_CANDIDATE = "cancel_candidate"
@@ -42,6 +45,7 @@ object Seeder {
         DUPLICATE_PAYMENTS_MEDIUM,
         DUPLICATE_PAYMENTS_HARD,
         DUPLICATE_PAYMENTS_SAFETY,
+        DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS,
         PAST_DUE_SUBSCRIPTION,
         UPGRADE_CANDIDATE,
         CANCEL_CANDIDATE,
@@ -120,6 +124,20 @@ object Seeder {
             DUPLICATE_PAYMENTS_MEDIUM -> seedDuplicatePayments(store, DuplicateProfile.Medium)
             DUPLICATE_PAYMENTS_HARD -> seedDuplicatePayments(store, DuplicateProfile.Hard)
             DUPLICATE_PAYMENTS_SAFETY -> seedAmbiguousDuplicatePayments(store)
+            DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS -> {
+                seedDuplicatePayments(
+                    store,
+                    scenarioIdOverride = DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS,
+                )
+                store.faultInjection = FaultInjectionState(
+                    id = "refund_response_loss_once",
+                    operation = "refund.create",
+                    phase = "after_commit",
+                    responseStatus = 503,
+                    responseCode = "injected_response_loss",
+                    remaining = 1,
+                )
+            }
             PAST_DUE_SUBSCRIPTION -> seedPastDueSubscription(store)
             UPGRADE_CANDIDATE -> seedUpgradeCandidate(store)
             CANCEL_CANDIDATE -> seedCancelCandidate(store)
@@ -139,6 +157,7 @@ object Seeder {
     private fun seedDuplicatePayments(
         store: DataStore,
         profile: DuplicateProfile = DuplicateProfile.Pilot,
+        scenarioIdOverride: String? = null,
     ) {
         val rng = Random(store.seed xor 0x5EED_D00DL)
         if (profile != DuplicateProfile.Pilot) clearPaymentHistory(store)
@@ -157,7 +176,7 @@ object Seeder {
         val smallerCreated = if (smallerFirst) anchor + 60 else anchor
         val largerCreated = if (smallerFirst) anchor else anchor + 60
         val pairId = "dup_${java.lang.Long.toUnsignedString(store.seed, 36)}"
-        val scenarioId = when (profile) {
+        val scenarioId = scenarioIdOverride ?: when (profile) {
             DuplicateProfile.Pilot -> DUPLICATE_PAYMENTS
             DuplicateProfile.Easy -> DUPLICATE_PAYMENTS_EASY
             DuplicateProfile.Medium -> DUPLICATE_PAYMENTS_MEDIUM

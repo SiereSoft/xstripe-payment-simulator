@@ -130,6 +130,18 @@ class Simulator(
         }
     }
 
+    /** Consume one matching controller-seeded fault and persist its audit counters. */
+    fun consumeFault(operation: String, phase: String): FaultInjectionState? = synchronized(lock) {
+        val fault = store.faultInjection ?: return@synchronized null
+        if (fault.operation != operation || fault.phase != phase || fault.remaining <= 0) {
+            return@synchronized null
+        }
+        fault.remaining -= 1
+        fault.injectedCount += 1
+        Snapshot.save(store, dataPath)
+        fault.copy()
+    }
+
     companion object {
         /**
          * Load the snapshot if present; otherwise build a fresh seeded world.

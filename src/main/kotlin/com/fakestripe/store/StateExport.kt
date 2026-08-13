@@ -49,6 +49,12 @@ fun DataStore.toControlPlaneJson(): JsonObject = buildJsonObject {
         scenario?.let { exportJson.encodeToJsonElement(ScenarioState.serializer(), it).redacted() }
             ?: JsonNull,
     )
+    put(
+        "fault_injection",
+        faultInjection?.let {
+            exportJson.encodeToJsonElement(FaultInjectionState.serializer(), it).redacted()
+        } ?: JsonNull,
+    )
     put("customers", encodeCollection(customers.values, Customer.serializer()))
     put(
         "payment_methods",

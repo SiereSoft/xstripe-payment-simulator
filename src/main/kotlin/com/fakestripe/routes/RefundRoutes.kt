@@ -20,7 +20,9 @@ fun Route.refundRoutes(sim: Simulator) {
             val charge = resolveRefundTarget(store, params.opt("charge"), params.opt("payment_intent"))
             store.expand(createRefund(store, charge, params).toApiJson(), params)
         }
-        call.respondStripe(json)
+        val fault = sim.consumeFault("refund.create", "after_commit")
+        if (fault == null) call.respondStripe(json)
+        else call.respondInjectedAfterCommitLoss(json, fault)
     }
 
     // Legacy nested create: POST /v1/charges/{id}/refunds
@@ -31,7 +33,9 @@ fun Route.refundRoutes(sim: Simulator) {
             val charge = store.requireCharge(id)
             store.expand(createRefund(store, charge, params).toApiJson(), params)
         }
-        call.respondStripe(json)
+        val fault = sim.consumeFault("refund.create", "after_commit")
+        if (fault == null) call.respondStripe(json)
+        else call.respondInjectedAfterCommitLoss(json, fault)
     }
 
     // Retrieve

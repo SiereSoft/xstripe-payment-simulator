@@ -216,6 +216,7 @@ controller-only IDs needed to verify the result.
 | Scenario | Seeded world |
 |---|---|
 | `duplicate_payments` | Two successful, unrefunded charges for one customer plus realistic distractors. |
+| `duplicate_payments_refund_response_loss` | The same duplicate world plus one controller-seeded `refund.create` response loss after commit. An idempotent retry replays the committed success without a second refund. |
 | `past_due_subscription` | A failed renewal, declining default card, and usable replacement card. |
 | `upgrade_candidate` | An active Basic-monthly subscription with a Pro-annual target and another active subscription. |
 | `cancel_candidate` | An active subscription with paid-through context and an unrelated subscription. |
@@ -338,6 +339,13 @@ HTTP status codes follow Stripe: `400` invalid request / missing param, `402` ca
 **Refunds** (`POST /v1/refunds` with a `charge` or `payment_intent`) are full or partial; a charge can be refunded repeatedly until the total is reached, and the charge's `amount_refunded` / `refunded` and embedded `refunds` list update accordingly. Over-refunding is rejected. This is the classic "refund the smaller of two charges" task material.
 
 **Idempotency**: any POST carrying an `Idempotency-Key` header caches its first response. A repeat with the same key replays that exact response (with an `Idempotent-Replayed: true` header) instead of, say, charging twice; a repeat with the *same key but a different body* returns a `400 idempotency_error`. Keys survive restarts (they're snapshotted).
+
+The `duplicate_payments_refund_response_loss` Gym scenario consumes one deterministic fault after
+the refund mutation commits. The first response is `503` with `Stripe-Should-Retry: true`, while
+the successful response has already been bound to the request's idempotency key. Repeating the
+exact request returns that cached `200` and does not invoke the refund route again. The privileged
+state export records the fault ID, phase, remaining count, and injected count; actor routes cannot
+configure the plan.
 
 ## Recurring billing (subscriptions & invoices)
 

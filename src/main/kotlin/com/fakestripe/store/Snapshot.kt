@@ -34,6 +34,7 @@ private data class StoreSnapshot(
     val clock: SimulatorClockState = SimulatorClockState(),
     val episodeId: String? = null,
     val scenario: ScenarioState? = null,
+    val faultInjection: FaultInjectionState? = null,
     val customers: List<Customer>,
     val paymentMethods: List<PaymentMethod>,
     val paymentIntents: List<PaymentIntent>,
@@ -71,6 +72,7 @@ object Snapshot {
             clock = store.clock.state,
             episodeId = store.episodeId,
             scenario = store.scenario,
+            faultInjection = store.faultInjection,
             customers = store.customers.values.toList(),
             paymentMethods = store.paymentMethods.values.toList(),
             paymentIntents = store.paymentIntents.values.toList(),
@@ -107,6 +109,7 @@ object Snapshot {
                 episodeId = snap.episodeId,
             ).apply {
                 scenario = snap.scenario
+                faultInjection = snap.faultInjection
                 snap.customers.forEach { customers[it.id] = it }
                 snap.paymentMethods.forEach { paymentMethods[it.id] = it }
                 snap.paymentIntents.forEach { paymentIntents[it.id] = it }

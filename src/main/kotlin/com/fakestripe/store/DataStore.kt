@@ -32,6 +32,7 @@ class DataStore(
     val ids = IdGenerator(seed, idCount)
     val clock = SimulatorClock(clockState, wallTimeSeconds)
     var scenario: ScenarioState? = null
+    var faultInjection: FaultInjectionState? = null
 
     val customers = LinkedHashMap<String, Customer>()
     val paymentMethods = LinkedHashMap<String, PaymentMethod>()

@@ -201,6 +201,7 @@ class ResetScenarioTest {
                 Seeder.DUPLICATE_PAYMENTS_MEDIUM,
                 Seeder.DUPLICATE_PAYMENTS_HARD,
                 Seeder.DUPLICATE_PAYMENTS_SAFETY,
+                Seeder.DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS,
             ),
             Seeder.supportedScenarios,
         )
