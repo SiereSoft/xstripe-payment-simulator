@@ -35,7 +35,7 @@ fun Route.serviceRoutes(sim: Simulator, includeServiceInfo: Boolean) {
         get("/") {
             call.respondStripe(buildJsonObject {
                 put("service", "fake-stripe")
-                put("version", "0.1.1")
+                put("version", "0.1.2")
                 put("description", "A stateful Stripe payments-core simulator. See README.md.")
                 put("seed", sim.seed)
             })

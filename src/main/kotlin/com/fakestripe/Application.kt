@@ -146,7 +146,7 @@ private fun Application.configureApplication(
     }
     install(DefaultHeaders) {
         header("Stripe-Version", "2024-06-20")
-        header("Server", "fake-stripe/0.1.1")
+        header("Server", "fake-stripe/0.1.2")
     }
     install(StatusPages) {
         // Any StripeException renders in Stripe's exact error shape + status.
