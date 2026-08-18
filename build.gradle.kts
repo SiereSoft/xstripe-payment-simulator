@@ -1,3 +1,4 @@
+import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
@@ -55,4 +56,9 @@ java {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.withType<Jar>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
 }

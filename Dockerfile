@@ -1,17 +1,25 @@
 # ---- Build stage ----
 # Builds a self-contained distribution using the Gradle `application` plugin.
 # Network is only needed here (at image build time) to fetch dependencies.
-FROM gradle:8.7-jdk11 AS build
+ARG SOURCE_DATE_EPOCH
+
+FROM gradle:8.7-jdk11@sha256:8942456a1b0a1d3ab52fc8ebb248f13a308aac6f40423d2e5537553a69c5c7f8 AS build
+ARG SOURCE_DATE_EPOCH
 WORKDIR /app
 COPY settings.gradle.kts build.gradle.kts gradle.properties ./
 COPY src ./src
-RUN gradle --no-daemon installDist
+RUN --mount=type=cache,target=/home/gradle/.gradle \
+    gradle --no-daemon --build-cache installDist \
+    && mkdir -p build/runtime-data \
+    && find build/install/fake-stripe build/runtime-data \
+        -exec touch --date="@${SOURCE_DATE_EPOCH}" {} +
 
 # ---- Runtime stage ----
 # The running container needs NO internet: everything is baked in.
-FROM eclipse-temurin:11-jre
+FROM eclipse-temurin:11-jre@sha256:49328316354e3d19046a08cc4a9b4aa50a07c6636f6bd5d1e7f7e11fc2731fa3
 WORKDIR /app
-COPY --from=build /app/build/install/fake-stripe ./
+COPY --chown=10001:10001 --from=build /app/build/install/fake-stripe ./
+COPY --chown=10001:10001 --from=build /app/build/runtime-data/ /data/
 
 # HOST binds all interfaces *inside the container* so the published port works.
 # That is not the same as exposing it on your machine — compose publishes the
@@ -28,10 +36,8 @@ ENV PORT=12111 \
 VOLUME ["/data"]
 EXPOSE 12111 12112
 
-# Run unprivileged. /data is the only path that needs to be writable at runtime.
-RUN useradd --system --uid 10001 --create-home --home-dir /home/fakestripe fakestripe \
-    && mkdir -p /data \
-    && chown -R fakestripe:fakestripe /data /app
+# Run unprivileged. The fixed numeric identity avoids mutable OS-account files, while
+# COPY --chown above makes /app and /data usable without a root setup step.
 USER 10001
 
 ENTRYPOINT ["./bin/fake-stripe"]

@@ -64,6 +64,22 @@ docker compose up --build
 # Host-only controller API: http://localhost:12112
 ```
 
+The Dockerfile pins its Gradle and JRE bases to immutable multi-platform digests. Use a fixed
+source epoch when comparing or publishing the resulting image digest:
+
+```bash
+SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" \
+docker build \
+  --build-arg SOURCE_DATE_EPOCH \
+  --provenance=false \
+  --tag xstripe-payment-simulator:reproducible \
+  .
+
+docker image inspect \
+  xstripe-payment-simulator:reproducible \
+  --format '{{.Id}}'
+```
+
 ### Without Docker (JDK 11+)
 
 ```bash
