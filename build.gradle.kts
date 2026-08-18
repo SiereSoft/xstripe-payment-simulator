@@ -14,7 +14,7 @@ repositories {
     mavenCentral()
 }
 
-val ktorVersion = "2.3.12"
+val ktorVersion = "3.5.2"
 val logbackVersion = "1.6.1"
 val serializationVersion = "1.6.3"
 val nettyVersion = "4.1.136.Final"
