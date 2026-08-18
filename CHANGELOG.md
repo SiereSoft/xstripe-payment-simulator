@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-08-18
+
+### Added
+
+- Deterministic after-commit response-loss injection and a matching duplicate-payment recovery
+  scenario, so clients can prove idempotent retries rather than only normal success.
+- A collateral-subscription development probe that proves target completion cannot offset an
+  unrelated subscription mutation.
+- A tag-driven GHCR release workflow that tests the tagged source, builds `linux/amd64` and
+  `linux/arm64`, publishes immutable OCI digests, adds an artifact attestation, and creates the
+  matching GitHub release.
+
+### Changed
+
+- A blank controller token now disables the privileged controller instead of accidentally
+  enabling it with an empty credential.
+- Gradle and JRE container bases are digest-pinned, archive ordering and timestamps are stable,
+  and the same source epoch produces byte-reproducible local images.
+
 ## [0.1.0] — 2026-08-12
 
 First public release.
@@ -63,4 +82,5 @@ First public release.
   reachable only through the controller — an agent can no longer read the answer out
   of the actor-facing API.
 
+[0.1.1]: https://github.com/SiereSoft/xstripe-payment-simulator/releases/tag/v0.1.1
 [0.1.0]: https://github.com/SiereSoft/xstripe-payment-simulator/releases/tag/v0.1.0

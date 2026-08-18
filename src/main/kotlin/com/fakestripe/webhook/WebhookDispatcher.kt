@@ -85,7 +85,7 @@ class WebhookDispatcher(url: String?, secret: String) {
                 instanceFollowRedirects = false
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Stripe-Signature", signature)
-                setRequestProperty("User-Agent", "fake-stripe/0.1.0")
+                setRequestProperty("User-Agent", "fake-stripe/0.1.1")
             }
             conn.outputStream.use { it.write(payload.toByteArray()) }
             conn.responseCode // force the request to be sent
