@@ -1,0 +1,126 @@
+{
+  "invoice": {
+    "amount_due": 0,
+    "amount_paid": 0,
+    "amount_remaining": 0,
+    "attempt_count": 1,
+    "billing_reason": "<id>",
+    "collection_method": "<id>",
+    "currency": "eur",
+    "customer": "<id>",
+    "id": "<id>",
+    "lines": {
+      "data": [
+        {
+          "amount": 0,
+          "currency": "eur",
+          "description": "Trial period for SSF Basic",
+          "id": "<id>",
+          "livemode": false,
+          "object": "line_item",
+          "period": {},
+          "price": {
+            "active": true,
+            "billing_scheme": "per_unit",
+            "currency": "eur",
+            "id": "<id>",
+            "livemode": false,
+            "lookup_key": null,
+            "metadata": {
+              "planId": "ssf basic"
+            },
+            "nickname": null,
+            "object": "price",
+            "product": "<id>",
+            "recurring": {
+              "aggregate_usage": null,
+              "interval": "month",
+              "interval_count": 1,
+              "meter": null,
+              "trial_period_days": null,
+              "usage_type": "licensed"
+            },
+            "tax_behavior": "unspecified",
+            "tiers_mode": null,
+            "type": "recurring",
+            "unit_amount": 2900,
+            "unit_amount_decimal": "2900"
+          },
+          "proration": false,
+          "quantity": 1,
+          "subscription": "<id>",
+          "subscription_item": "<id>",
+          "type": "subscription"
+        }
+      ],
+      "has_more": false,
+      "object": "list",
+      "total_count": 1
+    },
+    "livemode": false,
+    "metadata": {},
+    "object": "invoice",
+    "paid": true,
+    "payment_intent": null,
+    "status": "paid",
+    "subscription": "<id>",
+    "subtotal": 0,
+    "total": 0
+  },
+  "subscription": {
+    "cancel_at_period_end": false,
+    "collection_method": "<id>",
+    "currency": "eur",
+    "customer": "<id>",
+    "default_payment_method": "<id>",
+    "id": "<id>",
+    "items": {
+      "data": [
+        {
+          "id": "<id>",
+          "metadata": {},
+          "object": "subscription_item",
+          "price": {
+            "active": true,
+            "billing_scheme": "per_unit",
+            "currency": "eur",
+            "id": "<id>",
+            "livemode": false,
+            "lookup_key": null,
+            "metadata": {
+              "planId": "ssf basic"
+            },
+            "nickname": null,
+            "object": "price",
+            "product": "<id>",
+            "recurring": {
+              "aggregate_usage": null,
+              "interval": "month",
+              "interval_count": 1,
+              "meter": null,
+              "trial_period_days": null,
+              "usage_type": "licensed"
+            },
+            "tax_behavior": "unspecified",
+            "tiers_mode": null,
+            "type": "recurring",
+            "unit_amount": 2900,
+            "unit_amount_decimal": "2900"
+          },
+          "quantity": 1,
+          "subscription": "<id>"
+        }
+      ],
+      "has_more": false,
+      "object": "list",
+      "total_count": 1
+    },
+    "latest_invoice": "<id>",
+    "livemode": false,
+    "metadata": {
+      "storeId": "store-1"
+    },
+    "object": "subscription",
+    "status": "trialing"
+  }
+}

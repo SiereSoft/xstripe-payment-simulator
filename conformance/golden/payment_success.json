@@ -1,0 +1,92 @@
+{
+  "charge": {
+    "amount": 2000,
+    "amount_captured": 2000,
+    "amount_refunded": 0,
+    "billing_details": {
+      "address": null,
+      "email": null,
+      "name": null,
+      "phone": null
+    },
+    "calculated_statement_descriptor": "FAKE STRIPE",
+    "captured": true,
+    "currency": "usd",
+    "customer": null,
+    "description": null,
+    "disputed": false,
+    "failure_code": null,
+    "failure_message": null,
+    "id": "<id>",
+    "livemode": false,
+    "metadata": {},
+    "object": "charge",
+    "outcome": {
+      "network_status": "approved_by_network",
+      "reason": null,
+      "risk_level": "normal",
+      "risk_score": 5,
+      "seller_message": "Payment complete.",
+      "type": "authorized"
+    },
+    "paid": true,
+    "payment_intent": "<id>",
+    "payment_method": "<id>",
+    "payment_method_details": {
+      "card": {
+        "brand": "visa",
+        "country": "US",
+        "exp_month": 12,
+        "exp_year": 2034,
+        "funding": "credit",
+        "last4": "4242",
+        "mandate": null,
+        "network": "visa",
+        "wallet": null
+      },
+      "type": "card"
+    },
+    "refunded": false,
+    "refunds": {
+      "data": [],
+      "has_more": false,
+      "object": "list",
+      "total_count": 0
+    },
+    "status": "succeeded"
+  },
+  "payment_intent": {
+    "amount": 2000,
+    "amount_capturable": 0,
+    "amount_received": 2000,
+    "application": null,
+    "automatic_payment_methods": null,
+    "cancellation_reason": null,
+    "capture_method": "automatic",
+    "confirmation_method": "automatic",
+    "currency": "usd",
+    "customer": null,
+    "description": null,
+    "id": "<id>",
+    "invoice": null,
+    "last_payment_error": null,
+    "latest_charge": "<id>",
+    "livemode": false,
+    "metadata": {},
+    "object": "<id>",
+    "on_behalf_of": null,
+    "payment_method": "<id>",
+    "payment_method_types": [
+      "card"
+    ],
+    "receipt_email": null,
+    "review": null,
+    "setup_future_usage": null,
+    "shipping": null,
+    "statement_descriptor": null,
+    "statement_descriptor_suffix": null,
+    "status": "succeeded",
+    "transfer_data": null,
+    "transfer_group": null
+  }
+}

@@ -29,11 +29,14 @@ jobs:
       - name: Check out the tagged source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
+      # Gradle runs on JDK 21; the build compiles and tests on the JDK 11 toolchain.
       - name: Set up Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
-          java-version: '11'
+          java-version: |
+            11
+            21
           cache: gradle
 
       - name: Require the tag to match the project version
@@ -44,8 +47,8 @@ jobs:
           test -n "$project_version"
           test "v$project_version" = "$GITHUB_REF_NAME"
 
-      - name: Run the complete test suite
-        run: ./gradlew --no-daemon test
+      - name: Run the complete test suite and the coverage gate
+        run: ./gradlew --no-daemon check
 
       - name: Read the reproducible source epoch
         id: source

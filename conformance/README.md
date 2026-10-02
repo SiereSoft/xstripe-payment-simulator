@@ -37,6 +37,29 @@ REF_KEY=sk_test_xxx python compare.py live
 `verify` exits non-zero if the simulator diverges, so it drops straight into CI once
 you commit the golden files.
 
+## The committed recordings
+
+`golden/` holds nine flows (customer, payment success and decline, refund, subscription, price with
+`product_data`, subscription with a trial, an add-on quantity change, and a Checkout Session with
+two line items, `subscription_data` and a trial). CI's `sdk-python` job replays them with `verify`
+against the freshly built simulator.
+
+They were recorded from **the simulator itself** (`golden/SOURCE.json` says `"source": "simulator"`):
+
+```bash
+python compare.py baseline     # needs the simulator and its controller, no Stripe account
+```
+
+so today they are a regression baseline: any change in a normalized answer fails CI until the
+recordings are deliberately re-made. No Stripe test key was used — the project's tooling never calls
+Stripe's API on its own. Replacing them with recordings of real Stripe test mode is one command for
+whoever holds a test key (`REF_KEY=sk_test_… python compare.py capture`), after which `verify`
+measures fidelity rather than stability; expect `missing_in_sim` for the fields
+[docs/COMPATIBILITY.md](../docs/COMPATIBILITY.md) lists as not modelled.
+
+Before each run `verify` and `baseline` reset the simulator through the control protocol
+(`POST /v1/admin/reset` with a fixed seed and a manual clock), so the flows are deterministic.
+
 ## Reading the output
 
 Each flow reports three kinds of difference:
@@ -62,7 +85,7 @@ differences are warnings. This turns "is it really like Stripe?" into a punch li
 
 ## Normalization (what we ignore on purpose)
 
-Dropped: `created` and every `*_at` timestamp, period boundaries, `client_secret`
+Dropped: `created`, `updated` and every `*_at` timestamp, period boundaries (also inside `period`), `client_secret`
 and `*_secret`, `balance_transaction`, `fingerprint`, receipt/invoice URLs,
 human-facing `number`/`invoice_prefix`, and request metadata. Any value that looks
 like a Stripe id (`cus_…`, `pi_…`, `…_secret_…`) is collapsed to `<id>` so structure

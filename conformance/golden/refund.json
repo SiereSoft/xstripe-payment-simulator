@@ -1,0 +1,83 @@
+{
+  "charge_after": {
+    "amount": 2000,
+    "amount_captured": 2000,
+    "amount_refunded": 500,
+    "billing_details": {
+      "address": null,
+      "email": null,
+      "name": null,
+      "phone": null
+    },
+    "calculated_statement_descriptor": "FAKE STRIPE",
+    "captured": true,
+    "currency": "usd",
+    "customer": null,
+    "description": null,
+    "disputed": false,
+    "failure_code": null,
+    "failure_message": null,
+    "id": "<id>",
+    "livemode": false,
+    "metadata": {},
+    "object": "charge",
+    "outcome": {
+      "network_status": "approved_by_network",
+      "reason": null,
+      "risk_level": "normal",
+      "risk_score": 5,
+      "seller_message": "Payment complete.",
+      "type": "authorized"
+    },
+    "paid": true,
+    "payment_intent": "<id>",
+    "payment_method": "<id>",
+    "payment_method_details": {
+      "card": {
+        "brand": "visa",
+        "country": "US",
+        "exp_month": 12,
+        "exp_year": 2034,
+        "funding": "credit",
+        "last4": "4242",
+        "mandate": null,
+        "network": "visa",
+        "wallet": null
+      },
+      "type": "card"
+    },
+    "refunded": false,
+    "refunds": {
+      "data": [
+        {
+          "amount": 500,
+          "charge": "<id>",
+          "currency": "usd",
+          "destination_details": null,
+          "id": "<id>",
+          "metadata": {},
+          "object": "refund",
+          "payment_intent": "<id>",
+          "reason": null,
+          "status": "succeeded"
+        }
+      ],
+      "has_more": false,
+      "object": "list",
+      "total_count": 1
+    },
+    "status": "succeeded"
+  },
+  "refund": {
+    "amount": 500,
+    "charge": "<id>",
+    "currency": "usd",
+    "destination_details": null,
+    "id": "<id>",
+    "metadata": {},
+    "object": "refund",
+    "payment_intent": "<id>",
+    "reason": null,
+    "status": "succeeded"
+  }
+}

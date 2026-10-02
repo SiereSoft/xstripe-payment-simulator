@@ -1,0 +1,120 @@
+{
+  "invoice": {
+    "amount_due": 1500,
+    "amount_paid": 1500,
+    "amount_remaining": 0,
+    "attempt_count": 1,
+    "billing_reason": "<id>",
+    "collection_method": "<id>",
+    "currency": "usd",
+    "customer": "<id>",
+    "id": "<id>",
+    "lines": {
+      "data": [
+        {
+          "amount": 1500,
+          "currency": "usd",
+          "description": "1 \u00d7 Gold Plan (at $15.00 / month)",
+          "id": "<id>",
+          "livemode": false,
+          "object": "line_item",
+          "period": {},
+          "price": {
+            "active": true,
+            "billing_scheme": "per_unit",
+            "currency": "usd",
+            "id": "<id>",
+            "livemode": false,
+            "lookup_key": null,
+            "metadata": {},
+            "nickname": null,
+            "object": "price",
+            "product": "<id>",
+            "recurring": {
+              "aggregate_usage": null,
+              "interval": "month",
+              "interval_count": 1,
+              "meter": null,
+              "trial_period_days": null,
+              "usage_type": "licensed"
+            },
+            "tax_behavior": "unspecified",
+            "tiers_mode": null,
+            "type": "recurring",
+            "unit_amount": 1500,
+            "unit_amount_decimal": "1500"
+          },
+          "proration": false,
+          "quantity": 1,
+          "subscription": "<id>",
+          "subscription_item": "<id>",
+          "type": "subscription"
+        }
+      ],
+      "has_more": false,
+      "object": "list",
+      "total_count": 1
+    },
+    "livemode": false,
+    "metadata": {},
+    "object": "invoice",
+    "paid": true,
+    "payment_intent": "<id>",
+    "status": "paid",
+    "subscription": "<id>",
+    "subtotal": 1500,
+    "total": 1500
+  },
+  "subscription": {
+    "cancel_at_period_end": false,
+    "collection_method": "<id>",
+    "currency": "usd",
+    "customer": "<id>",
+    "default_payment_method": "<id>",
+    "id": "<id>",
+    "items": {
+      "data": [
+        {
+          "id": "<id>",
+          "metadata": {},
+          "object": "subscription_item",
+          "price": {
+            "active": true,
+            "billing_scheme": "per_unit",
+            "currency": "usd",
+            "id": "<id>",
+            "livemode": false,
+            "lookup_key": null,
+            "metadata": {},
+            "nickname": null,
+            "object": "price",
+            "product": "<id>",
+            "recurring": {
+              "aggregate_usage": null,
+              "interval": "month",
+              "interval_count": 1,
+              "meter": null,
+              "trial_period_days": null,
+              "usage_type": "licensed"
+            },
+            "tax_behavior": "unspecified",
+            "tiers_mode": null,
+            "type": "recurring",
+            "unit_amount": 1500,
+            "unit_amount_decimal": "1500"
+          },
+          "quantity": 1,
+          "subscription": "<id>"
+        }
+      ],
+      "has_more": false,
+      "object": "list",
+      "total_count": 1
+    },
+    "latest_invoice": "<id>",
+    "livemode": false,
+    "metadata": {},
+    "object": "subscription",
+    "status": "active"
+  }
+}

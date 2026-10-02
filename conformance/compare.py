@@ -12,6 +12,8 @@ left. Differences fall into three buckets:
 
 Modes:
   capture   run flows against the reference, save normalized golden files
+  baseline  run flows against the simulator itself and save them as golden files
+            (a regression baseline that needs no Stripe account; see README.md)
   verify    run flows against the sim, diff against the saved golden files
   live      run flows against reference AND sim in one go, diff directly
 
@@ -61,8 +63,10 @@ DROP_KEYS = {
     "start_date", "billing_cycle_anchor", "trial_start", "trial_end", "client_secret",
     "balance_transaction", "fingerprint", "receipt_url", "hosted_invoice_url", "invoice_pdf",
     "url", "number", "invoice_prefix", "receipt_number", "request", "idempotency_key",
-    "financial_connections", "next_action", "webhooks_delivered_at",
+    "financial_connections", "next_action", "webhooks_delivered_at", "updated",
 }
+# Inside these objects the named keys are timestamps too.
+DROP_NESTED = {"period": {"start", "end"}}
 
 
 # --- flows: each returns {label: object}; sequences chain within one backend -----
@@ -118,20 +122,86 @@ def flow_subscription():
     return {"subscription": sub, "invoice": stripe.Invoice.retrieve(sub.latest_invoice)}
 
 
+def _customer_with_card(email):
+    c = stripe.Customer.create(email=email)
+    pm = stripe.PaymentMethod.attach("pm_card_visa", customer=c.id)
+    stripe.Customer.modify(c.id, invoice_settings={"default_payment_method": pm.id})
+    return c
+
+
+def _monthly_price(amount, name):
+    return stripe.Price.create(
+        currency="eur", unit_amount=amount, recurring={"interval": "month"},
+        product_data={"name": name}, metadata={"planId": name.lower()},
+    )
+
+
+def flow_price_product_data():
+    price = _monthly_price(2900, "SSF Basic")
+    return {"price": price, "product": stripe.Product.retrieve(price.product)}
+
+
+def flow_subscription_trial():
+    c = _customer_with_card("trial@example.com")
+    price = _monthly_price(2900, "SSF Basic")
+    sub = stripe.Subscription.create(
+        customer=c.id, items=[{"price": price.id}], trial_period_days=7, metadata={"storeId": "store-1"},
+    )
+    return {"subscription": sub, "invoice": stripe.Invoice.retrieve(sub.latest_invoice)}
+
+
+def flow_subscription_item_quantity():
+    c = _customer_with_card("seats@example.com")
+    plan = _monthly_price(2900, "SSF Basic")
+    addon = _monthly_price(500, "Extra till")
+    sub = stripe.Subscription.create(
+        customer=c.id, items=[{"price": plan.id}, {"price": addon.id, "quantity": 1}],
+    )
+    addon_item = [i for i in sub["items"]["data"] if i["price"]["id"] == addon.id][0]
+    item = stripe.SubscriptionItem.modify(addon_item.id, quantity=3, proration_behavior="none")
+    return {"item": item, "subscription": stripe.Subscription.retrieve(sub.id)}
+
+
+def flow_checkout_subscription():
+    c = stripe.Customer.create(email="checkout@example.com", metadata={"accountId": "acc-1"})
+    plan = _monthly_price(2900, "SSF Basic")
+    addon = _monthly_price(500, "Extra till")
+    session = stripe.checkout.Session.create(
+        mode="subscription",
+        customer=c.id,
+        line_items=[{"price": plan.id, "quantity": 1}, {"price": addon.id, "quantity": 3}],
+        success_url="https://example.com/done?session={CHECKOUT_SESSION_ID}",
+        cancel_url="https://example.com/cancel",
+        client_reference_id="store-1",
+        metadata={"storeId": "store-1"},
+        subscription_data={"metadata": {"storeId": "store-1"}, "trial_period_days": 14},
+    )
+    return {"session": session, "retrieve": stripe.checkout.Session.retrieve(session.id)}
+
+
 FLOWS = {
     "customer": flow_customer,
     "payment_success": flow_payment_success,
     "payment_decline": flow_payment_decline,
     "refund": flow_refund,
     "subscription": flow_subscription,
+    "price_product_data": flow_price_product_data,
+    "subscription_trial": flow_subscription_trial,
+    "subscription_item_quantity": flow_subscription_item_quantity,
+    "checkout_subscription": flow_checkout_subscription,
 }
 
 
 # --- normalization + diff --------------------------------------------------------
 
 def to_plain(o):
-    if hasattr(o, "to_dict_recursive"):
+    if hasattr(o, "to_dict_recursive"):  # stripe-python < 8
         return o.to_dict_recursive()
+    if hasattr(o, "to_dict"):  # stripe-python >= 8 (to_dict is recursive)
+        try:
+            return to_plain(o.to_dict(for_json=True))  # decimals as strings, as on the wire
+        except TypeError:
+            return to_plain(o.to_dict())
     if isinstance(o, dict):
         return {k: to_plain(v) for k, v in o.items()}
     if isinstance(o, list):
@@ -139,16 +209,18 @@ def to_plain(o):
     return o
 
 
-def normalize(v):
+def normalize(v, parent=None):
     if isinstance(v, dict):
         out = {}
         for k, val in v.items():
             if k in DROP_KEYS or k.endswith("_at") or k.endswith("_secret"):
                 continue
-            out[k] = normalize(val)
+            if k in DROP_NESTED.get(parent, ()):
+                continue
+            out[k] = normalize(val, k)
         return out
     if isinstance(v, list):
-        return [normalize(x) for x in v]
+        return [normalize(x, parent) for x in v]
     if isinstance(v, str):
         if "_secret_" in v or ID_RE.match(v):
             return "<id>"
@@ -192,18 +264,21 @@ def run_backend(base, key):
 
 
 def reset_sim():
+    """A fresh deterministic world on a manual clock (control protocol reset)."""
     import urllib.request
+    body = json.dumps({"seed": "1", "episode_id": "conformance", "now": "2026-10-05T08:00:00.000Z"}).encode()
     try:
         urllib.request.urlopen(
             urllib.request.Request(
-                f"{CONTROL_BASE}/v1/admin/reset?seed=1&episode_id=conformance",
+                f"{CONTROL_BASE}/v1/admin/reset",
+                data=body,
                 method="POST",
-                headers={"X-Siere-Control-Token": CONTROL_TOKEN},
+                headers={"X-Siere-Control-Token": CONTROL_TOKEN, "Content-Type": "application/json"},
             ),
             timeout=10,
         )
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 - a missing controller is reported, not fatal
+        print(f"warning: could not reset the simulator through {CONTROL_BASE}: {e}", file=sys.stderr)
 
 
 # --- modes -----------------------------------------------------------------------
@@ -234,15 +309,28 @@ def report(reference, sim_result):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "verify"
 
-    if mode == "capture":
-        if not REF_KEY:
-            sys.exit("REF_KEY is required for capture (a Stripe test key sk_test_...).")
+    if mode in ("capture", "baseline"):
+        if mode == "capture":
+            if not REF_KEY:
+                sys.exit("REF_KEY is required for capture (a Stripe test key sk_test_...).")
+            base, key, source = REF_BASE, REF_KEY, "reference"
+        else:
+            # The simulator's own answers, recorded as a regression baseline.
+            reset_sim()
+            base, key, source = SIM_BASE, SIM_KEY, "simulator"
         os.makedirs(GOLDEN_DIR, exist_ok=True)
-        ref = run_backend(REF_BASE, REF_KEY)
+        ref = run_backend(base, key)
+        failed = [flow for flow, data in ref.items() if "_flow_error" in data]
+        if failed:
+            sys.exit(f"Flows failed against {base}: {', '.join(failed)}; nothing written.")
         for flow, data in ref.items():
             with open(os.path.join(GOLDEN_DIR, f"{flow}.json"), "w") as f:
                 json.dump(data, f, indent=2, sort_keys=True)
-        print(f"Captured {len(ref)} flows from {REF_BASE} -> {GOLDEN_DIR}/")
+                f.write("\n")
+        with open(os.path.join(GOLDEN_DIR, "SOURCE.json"), "w") as f:
+            json.dump({"source": source, "stripe_python": stripe.VERSION}, f, indent=2, sort_keys=True)
+            f.write("\n")
+        print(f"Captured {len(ref)} flows from {base} -> {GOLDEN_DIR}/")
         return
 
     if mode == "verify":
@@ -265,7 +353,7 @@ def main():
         sim_result = run_backend(SIM_BASE, SIM_KEY)
         sys.exit(1 if report(reference, sim_result) else 0)
 
-    sys.exit(f"Unknown mode: {mode}. Use capture | verify | live.")
+    sys.exit(f"Unknown mode: {mode}. Use capture | baseline | verify | live.")
 
 
 if __name__ == "__main__":

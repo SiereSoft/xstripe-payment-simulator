@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": "<id>",
+    "decline_code": "<id>",
+    "http_status": 402,
+    "payment_intent_status": "requires_payment_method",
+    "raised": true,
+    "type": "card_error"
+  }
+}
