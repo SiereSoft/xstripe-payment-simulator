@@ -175,7 +175,12 @@ class SimulatorClockTest {
         val advance = client.post("/v1/admin/clock/advance?seconds=60") {
             header("X-Siere-Control-Token", "controller-test-token")
         }
-        assertEquals(HttpStatusCode.BadRequest, advance.status)
+        // 0.2.0: the control protocol answers 409 clock_not_manual (0.1.x answered 400).
+        assertEquals(HttpStatusCode.Conflict, advance.status)
+        assertEquals(
+            "clock_not_manual",
+            body(advance.bodyAsText())["error"]!!.jsonObject["code"]!!.jsonPrimitive.content,
+        )
         assertEquals("clock_mode", errorParam(advance.bodyAsText()))
         assertEquals(revisionBefore, simulator.read { it.revision })
     }

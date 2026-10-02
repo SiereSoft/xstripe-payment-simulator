@@ -414,6 +414,8 @@ class ResetScenarioTest {
     private fun signature(store: DataStore): String {
         val state = store.toControlPlaneJson().toMutableMap()
         state.remove("state_revision")
+        // 0.2.0 exports the protocol's `revision` next to `state_revision`; both count writes.
+        state.remove("revision")
         return JsonObject(state).toString()
     }
 
