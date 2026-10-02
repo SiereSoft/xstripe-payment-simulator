@@ -12,4 +12,6 @@ data class IdempotencyRecord(
     val fingerprint: String,
     val status: Int,
     val body: String,
+    /** The request that produced the cached response; replays answer it in `Original-Request`. */
+    val requestId: String? = null,
 )

@@ -13,8 +13,12 @@ object TestCards {
         /** Charge succeeds. */
         object Succeed : Outcome
 
-        /** Requires 3-D Secure / additional customer action. */
-        object RequiresAction : Outcome
+        /**
+         * Requires 3-D Secure / additional customer action. When [unlessSetUp] is true the card
+         * is Stripe's "authenticate unless set up" card: once authenticated while being saved,
+         * later off-session charges succeed without another challenge.
+         */
+        data class RequiresAction(val unlessSetUp: Boolean) : Outcome
 
         /**
          * Charge is declined. [code] is the top-level error code (usually
@@ -65,8 +69,8 @@ object TestCards {
         "4000000000000127" to Card("visa", outcome = incorrectCvc),
         "4000000000000119" to Card("visa", outcome = processingError),
         // 3-D Secure / requires_action
-        "4000002500003155" to Card("visa", outcome = Outcome.RequiresAction),
-        "4000000000003220" to Card("visa", outcome = Outcome.RequiresAction),
+        "4000002500003155" to Card("visa", outcome = Outcome.RequiresAction(unlessSetUp = true)),
+        "4000000000003220" to Card("visa", outcome = Outcome.RequiresAction(unlessSetUp = false)),
     )
 
     /**

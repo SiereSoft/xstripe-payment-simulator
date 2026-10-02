@@ -2,7 +2,6 @@ package com.fakestripe.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -19,18 +18,22 @@ data class Event(
     val type: String,
     val dataObject: JsonObject,
     @SerialName("episode_id") val episodeId: String? = null,
+    /** The API request that caused the event (Stripe's `request.id`); null for automatic events. */
+    val requestId: String? = null,
+    /** The `Idempotency-Key` that request carried, if any. */
+    val idempotencyKey: String? = null,
 ) {
     fun toApiJson(): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "event")
-        put("api_version", "2024-06-20")
+        put("api_version", com.fakestripe.BuildInfo.STRIPE_API_VERSION)
         put("created", created)
         put("type", type)
         put("livemode", false)
         put("pending_webhooks", 0)
         put("request", buildJsonObject {
-            put("id", JsonNull)
-            put("idempotency_key", JsonNull)
+            put("id", requestId)
+            put("idempotency_key", idempotencyKey)
         })
         put("data", buildJsonObject { put("object", dataObject) })
     }

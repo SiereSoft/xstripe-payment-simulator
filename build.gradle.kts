@@ -1,14 +1,16 @@
 import org.gradle.jvm.tasks.Jar
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     kotlin("jvm") version "1.9.24"
     kotlin("plugin.serialization") version "1.9.24"
+    id("org.jetbrains.kotlinx.kover") version "0.9.9"
     application
 }
 
 group = "com.fakestripe"
-version = "0.1.2"
+// The single source of the simulator's version: /v1/admin/health, the Server header, the
+// webhook User-Agent and the service info all read it from the generated resource below.
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -39,24 +41,55 @@ dependencies {
     testImplementation("com.stripe:stripe-java:33.1.0")
 }
 
-application {
-    mainClass.set("com.fakestripe.ApplicationKt")
+// The shipped image runs on a Java 11 JRE, so compile against and test on JDK 11 even when
+// Gradle itself runs on a newer JDK.
+kotlin {
+    jvmToolchain(11)
 }
 
-tasks.withType<KotlinCompile>().configureEach {
-    kotlinOptions {
-        jvmTarget = "11"
+application {
+    mainClass.set("com.fakestripe.MainKt")
+}
+
+val generateVersion by tasks.registering {
+    val out = layout.buildDirectory.dir("generated/version")
+    val v = project.version.toString()
+    inputs.property("version", v)
+    outputs.dir(out)
+    doLast {
+        val file = out.get().file("fake-stripe-version.properties").asFile
+        file.parentFile.mkdirs()
+        file.writeText("version=$v\n")
     }
 }
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
-}
+sourceSets.main { resources.srcDir(generateVersion) }
 
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // Only the trivial process entry point (Main.kt): it reads the real environment and
+                // blocks until the listeners stop. Everything it calls is covered by tests.
+                classes("com.fakestripe.MainKt")
+            }
+        }
+        verify {
+            rule("Line coverage stays at or above 90 %") {
+                minBound(90)
+            }
+        }
+    }
+}
+
+tasks.check { dependsOn(tasks.koverVerify) }
 
 tasks.withType<Jar>().configureEach {
     isPreserveFileTimestamps = false

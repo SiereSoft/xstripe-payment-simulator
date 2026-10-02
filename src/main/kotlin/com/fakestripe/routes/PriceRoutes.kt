@@ -1,7 +1,11 @@
 package com.fakestripe.routes
 
+import com.fakestripe.error.StripeException
 import com.fakestripe.model.Price
+import com.fakestripe.model.Product
+import com.fakestripe.store.DataStore
 import com.fakestripe.store.Simulator
+import com.fakestripe.util.StripeParams
 import io.ktor.server.application.call
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -12,8 +16,16 @@ fun Route.priceRoutes(sim: Simulator) {
     post("/v1/prices") {
         val params = call.formParams()
         val json = sim.write { store ->
-            val product = params.require("product").also { store.requireProduct(it) }
+            val product = resolveProduct(store, params)
             val recurring = params.subMap("recurring")
+            recurring["interval"]?.let { interval ->
+                if (interval !in setOf("day", "week", "month", "year")) {
+                    throw StripeException.invalidRequest(
+                        "Invalid recurring[interval]: must be one of day, month, week, or year",
+                        param = "recurring[interval]",
+                    )
+                }
+            }
             val price = Price(
                 id = store.newId("price"),
                 created = store.now(),
@@ -63,4 +75,34 @@ fun Route.priceRoutes(sim: Simulator) {
         }
         call.respondStripe(json)
     }
+}
+
+/**
+ * A price names its product with `product`, or creates one inline with `product_data[...]`
+ * (exactly one of the two, as at Stripe).
+ */
+private fun resolveProduct(store: DataStore, params: StripeParams): String {
+    val productId = params.opt("product")
+    val productData = params.subMap("product_data")
+    val productMetadata = params.subMap("product_data[metadata]")
+    if (productId != null && (productData.isNotEmpty() || productMetadata.isNotEmpty())) {
+        throw StripeException.invalidRequest(
+            "You may only specify one of these parameters: product, product_data.",
+            param = "product",
+        )
+    }
+    if (productId != null) return productId.also { store.requireProduct(it) }
+    if (productData.isEmpty() && productMetadata.isEmpty()) throw StripeException.missingParam("product")
+    val name = productData["name"] ?: throw StripeException.missingParam("product_data[name]")
+    val now = store.now()
+    val product = Product(
+        id = store.newId("prod"),
+        created = now,
+        updated = now,
+        name = name,
+        active = productData["active"]?.let { it == "true" } ?: true,
+    )
+    product.metadata.putAll(productMetadata)
+    store.products[product.id] = product
+    return product.id
 }

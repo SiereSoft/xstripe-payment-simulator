@@ -3,7 +3,6 @@ package com.fakestripe.routes
 import com.fakestripe.model.Expand
 import com.fakestripe.model.StripeList
 import com.fakestripe.store.DataStore
-import com.fakestripe.store.FaultInjectionState
 import com.fakestripe.util.StripeParams
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -19,8 +18,6 @@ import io.ktor.util.AttributeKey
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 private val stripeJson = Json { encodeDefaults = true; prettyPrint = false }
 
@@ -33,38 +30,12 @@ val IdempotencyRecorderKey = AttributeKey<(Int, String) -> Unit>("fakestripe.ide
 /** Respond with a JSON body in Stripe's content type (recording it for idempotency if asked). */
 suspend fun ApplicationCall.respondStripe(element: JsonElement, status: HttpStatusCode = HttpStatusCode.OK) {
     val text = stripeJson.encodeToString(JsonElement.serializer(), element)
-    attributes.getOrNull(IdempotencyRecorderKey)?.invoke(status.value, text)
-    respondText(text, ContentType.Application.Json, status)
-}
-
-/**
- * Model a provider that committed an idempotent mutation but lost its success response.
- *
- * The successful response is cached against the caller's idempotency key before the retryable
- * failure is returned. Repeating that exact request therefore replays success without executing
- * the mutation again. Without a key, callers still see the transient failure and must reconcile
- * state instead of blindly submitting another mutation.
- */
-suspend fun ApplicationCall.respondInjectedAfterCommitLoss(
-    successfulElement: JsonElement,
-    fault: FaultInjectionState,
-) {
-    val successfulText = stripeJson.encodeToString(JsonElement.serializer(), successfulElement)
     attributes.getOrNull(IdempotencyRecorderKey)?.let { recorder ->
-        recorder(HttpStatusCode.OK.value, successfulText)
+        // Record once: a later error page for the same call must not overwrite the result.
         attributes.remove(IdempotencyRecorderKey)
+        recorder(status.value, text)
     }
-    response.headers.append("Stripe-Should-Retry", "true")
-    respondStripe(
-        buildJsonObject {
-            put("error", buildJsonObject {
-                put("type", "api_error")
-                put("code", fault.responseCode)
-                put("message", "The operation committed, but its success response was lost.")
-            })
-        },
-        HttpStatusCode.fromValue(fault.responseStatus),
-    )
+    respondText(text, ContentType.Application.Json, status)
 }
 
 /** Parse a form-encoded POST body into [StripeParams] (tolerating an empty body). */

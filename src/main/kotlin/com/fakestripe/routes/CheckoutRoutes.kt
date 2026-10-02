@@ -9,6 +9,7 @@ import com.fakestripe.model.CheckoutSession
 import com.fakestripe.store.DataStore
 import com.fakestripe.store.Simulator
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -58,7 +59,10 @@ fun Route.checkoutRoutes(sim: Simulator) {
         val id = call.parameters["id"]!!
         val json = sim.write { store ->
             val session = store.requireCheckoutSession(id)
-            if (session.status == "open") session.status = "expired"
+            if (session.status == "open") {
+                session.status = "expired"
+                store.recordEvent("checkout.session.expired", session.toApiJson())
+            }
             session.toApiJson()
         }
         call.respondStripe(json)
@@ -84,12 +88,28 @@ fun Route.checkoutRoutes(sim: Simulator) {
             val session = store.checkoutSessions[id] ?: return@write null
             CheckoutOps.pay(store, session, card)
         }
-        when (result) {
-            null -> call.respondHtml(missingPage("checkout session"), HttpStatusCode.NotFound)
-            is CheckoutOps.PayResult.Redirect -> call.seeOther(result.url)
-            is CheckoutOps.PayResult.Failed ->
-                call.seeOther("/checkout/$id?error=" + java.net.URLEncoder.encode(result.message, "UTF-8"))
+        respondPayResult(call, id, result)
+    }
+
+    // The simulated 3-D Secure challenge, like the test page Stripe shows for authentication cards.
+    get("/checkout/{id}/authenticate") {
+        val id = call.parameters["id"]!!
+        val html = sim.read { store ->
+            val session = store.checkoutSessions[id] ?: return@read null
+            authenticationPage(store, session)
         }
+        if (html == null) call.respondHtml(missingPage("checkout session"), HttpStatusCode.NotFound)
+        else call.respondHtml(html)
+    }
+
+    post("/checkout/{id}/authenticate") {
+        val id = call.parameters["id"]!!
+        val outcome = call.formParams().opt("outcome").orEmpty()
+        val result = sim.write { store ->
+            val session = store.checkoutSessions[id] ?: return@write null
+            CheckoutOps.authenticate(store, session, outcome)
+        }
+        respondPayResult(call, id, result)
     }
 
     post("/checkout/{id}/cancel") {
@@ -106,6 +126,43 @@ fun Route.checkoutRoutes(sim: Simulator) {
     }
 }
 
+private suspend fun respondPayResult(call: ApplicationCall, id: String, result: CheckoutOps.PayResult?) {
+    when (result) {
+        null -> call.respondHtml(missingPage("checkout session"), HttpStatusCode.NotFound)
+        is CheckoutOps.PayResult.Redirect -> call.seeOther(result.url)
+        is CheckoutOps.PayResult.Authenticate -> call.seeOther(result.url)
+        is CheckoutOps.PayResult.Failed ->
+            call.seeOther("/checkout/$id?error=" + java.net.URLEncoder.encode(result.message, "UTF-8"))
+    }
+}
+
+private fun authenticationPage(store: DataStore, session: CheckoutSession): String {
+    val pm = session.pendingAuthentication?.let { store.paymentMethods[it] }
+        ?: return page(
+            "Authentication · fake-stripe",
+            "<h1>Nothing to authenticate</h1><p class=\"muted\">There is no payment waiting for 3-D Secure.</p>" +
+                "<form method=\"get\" action=\"/checkout/${esc(session.id)}\"><button class=\"secondary\">Back to checkout</button></form>",
+        )
+    val body = StringBuilder()
+    body.append("<h1>3D Secure test payment</h1>")
+    body.append("<p class=\"muted\">${esc(pm.brand)} ending in ${esc(pm.last4)}</p>")
+    body.append(
+        "<p>This is the simulator's stand-in for the bank's authentication page. Choose how the " +
+            "customer's bank answers.</p>",
+    )
+    body.append(
+        "<form method=\"post\" action=\"/checkout/${esc(session.id)}/authenticate\">" +
+            "<input type=\"hidden\" name=\"outcome\" value=\"complete\">" +
+            "<button class=\"primary\">Complete authentication</button></form>",
+    )
+    body.append(
+        "<form method=\"post\" action=\"/checkout/${esc(session.id)}/authenticate\">" +
+            "<input type=\"hidden\" name=\"outcome\" value=\"fail\">" +
+            "<button class=\"danger\">Fail authentication</button></form>",
+    )
+    return page("Authentication · fake-stripe", body.toString())
+}
+
 private fun checkoutPage(store: DataStore, session: CheckoutSession, error: String?): String {
     val heading = if (session.mode == "subscription") "Subscribe" else "Pay"
     val body = StringBuilder()
@@ -115,6 +172,15 @@ private fun checkoutPage(store: DataStore, session: CheckoutSession, error: Stri
     body.append("<h1>$heading</h1>")
     body.append("<p class=\"muted\">${esc(session.customerEmail ?: "No email supplied")}</p>")
     body.append("<div class=\"amount\">${esc(money(session.amountTotal, session.currency))}</div>")
+    if (session.hasTrial) {
+        val recurring = session.lines.sumOf { (store.prices[it.priceId]?.unitAmount ?: 0) * it.quantity }
+        val interval = session.lines.firstOrNull()?.let { store.prices[it.priceId]?.recurringInterval }.orEmpty()
+        val trial = session.trialPeriodDays?.let { "$it-day free trial" }
+            ?: session.trialEnd?.let { "Free trial until ${date(it)}" }
+        body.append(
+            "<p class=\"muted\">${esc(trial)}, then ${esc(money(recurring, session.currency))} / ${esc(interval)}</p>",
+        )
+    }
 
     session.lines.forEach { line ->
         val price = store.prices[line.priceId]
@@ -145,7 +211,8 @@ private fun checkoutPage(store: DataStore, session: CheckoutSession, error: Stri
                 "<input id=\"card_number\" name=\"card_number\" value=\"4242424242424242\" " +
                     "autocomplete=\"off\" inputmode=\"numeric\">",
             )
-            body.append("<button class=\"primary\">Pay ${esc(money(session.amountTotal, session.currency))}</button>")
+            val action = if (session.hasTrial) "Start trial" else "Pay ${money(session.amountTotal, session.currency)}"
+            body.append("<button class=\"primary\">${esc(action)}</button>")
             body.append("</form>")
             body.append(
                 "<form method=\"post\" action=\"/checkout/${esc(session.id)}/cancel\">" +
@@ -155,7 +222,8 @@ private fun checkoutPage(store: DataStore, session: CheckoutSession, error: Stri
                 "<div class=\"note\"><strong>Test cards</strong><br>" +
                     "<code>4242424242424242</code> succeeds · " +
                     "<code>4000000000000002</code> declines · " +
-                    "<code>4000000000009995</code> insufficient funds<br>" +
+                    "<code>4000000000009995</code> insufficient funds · " +
+                    "<code>4000002500003155</code> asks for 3-D Secure<br>" +
                     "Paying emits <code>checkout.session.completed</code> before the redirect — " +
                     "that event, not the redirect, is what grants access.</div>",
             )

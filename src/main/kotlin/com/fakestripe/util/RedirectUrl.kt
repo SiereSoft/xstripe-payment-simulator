@@ -39,7 +39,9 @@ object RedirectUrl {
             )
         }
 
-        val scheme = runCatching { URI(trimmed).scheme }.getOrElse {
+        // Stripe's `{CHECKOUT_SESSION_ID}` template is not URI syntax until it is substituted.
+        val parseable = trimmed.replace("{CHECKOUT_SESSION_ID}", "CHECKOUT_SESSION_ID")
+        val scheme = runCatching { URI(parseable).scheme }.getOrElse {
             throw StripeException.invalidRequest("`$param` is not a valid URL.", param = param)
         }
 

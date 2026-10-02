@@ -3,11 +3,11 @@ package com.fakestripe.store
 import kotlinx.serialization.Serializable
 
 /**
- * Controller-owned deterministic fault plan attached to a seeded scenario.
+ * The pre-protocol shape of a scenario-seeded fault plan.
  *
- * Actor routes may consume a matching plan, but actors cannot configure or reset it. Keeping the
- * counter in the persisted world makes a lost-response episode reproducible and auditable across
- * simulator restarts.
+ * Since 0.2.0 scenario faults are ordinary named faults (`com.fakestripe.control.Fault`); this
+ * shape is still exported as `fault_injection` in `/v1/admin/state` for verifiers written against
+ * 0.1.x, and a state file from 0.1.x that carries one is migrated to a named fault on load.
  */
 @Serializable
 data class FaultInjectionState(

@@ -1,64 +1,34 @@
 package com.fakestripe.webhook
 
-import com.fakestripe.model.Event
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import org.slf4j.LoggerFactory
-import org.slf4j.MDC
+import com.fakestripe.BuildInfo
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URI
 import java.net.URL
-import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import org.slf4j.LoggerFactory
 
 /**
- * Delivers signed event payloads to a configurable webhook URL, like real Stripe.
+ * The webhook endpoint's transport and signing secret.
  *
- * The `Stripe-Signature` header is `t=<timestamp>,v1=<hmac>` where the HMAC-SHA256
- * is taken over `"<timestamp>.<payload>"` with the endpoint secret — the exact
- * scheme `stripe.Webhook.constructEvent` verifies. Delivery is fire-and-forget on
- * a daemon thread, so it never blocks API responses.
+ * The `Stripe-Signature` header is `t=<timestamp>,v1=<hmac>` where the HMAC-SHA256 is taken over
+ * `"<timestamp>.<payload>"` with the endpoint secret — the exact scheme
+ * `stripe.Webhook.constructEvent` verifies. Like Stripe, every attempt is signed with the time of
+ * that attempt. Which events go out, when, and how often they are retried is decided by the
+ * persisted outbox (see [WebhookJob], [RetrySchedule]); this class only performs one attempt.
+ *
+ * [url] is the endpoint configured from the environment at start-up; the world's configuration
+ * holds the live endpoint. The secret is never persisted or echoed.
  */
 class WebhookDispatcher(url: String?, secret: String) {
     @Volatile var url: String? = url
     @Volatile var secret: String = secret
 
     private val log = LoggerFactory.getLogger(WebhookDispatcher::class.java)
-    private val json = Json { encodeDefaults = true }
 
-    /**
-     * Bounded queue: a slow or hanging receiver must not let pending deliveries
-     * grow without limit. When the queue is full the oldest undelivered event is
-     * dropped and logged — the simulator's own state is already durable, so
-     * shedding delivery load is preferable to exhausting memory.
-     */
-    private val pool = ThreadPoolExecutor(
-        1, 1, 0L, TimeUnit.MILLISECONDS,
-        ArrayBlockingQueue(QUEUE_CAPACITY),
-        { r -> Thread(r, "webhook-dispatch").apply { isDaemon = true } },
-        ThreadPoolExecutor.DiscardOldestPolicy(),
-    )
-
-    fun deliver(event: Event) {
-        val target = url ?: return
-        val payload = json.encodeToString(JsonElement.serializer(), event.toApiJson())
-        val timestamp = event.created
-        val signature = "t=$timestamp,v1=${sign("$timestamp.$payload")}"
-        pool.submit {
-            val previousEpisodeId = MDC.get("episode_id")
-            try {
-                if (event.episodeId == null) MDC.remove("episode_id")
-                else MDC.put("episode_id", event.episodeId)
-                post(target, payload, signature)
-            } finally {
-                if (previousEpisodeId == null) MDC.remove("episode_id")
-                else MDC.put("episode_id", previousEpisodeId)
-            }
-        }
+    data class AttemptResult(val status: Int?, val error: String?) {
+        val delivered: Boolean get() = status != null && status in 200..299
     }
 
     /** HMAC-SHA256 hex of the signed payload, keyed by the endpoint secret. */
@@ -68,36 +38,49 @@ class WebhookDispatcher(url: String?, secret: String) {
         return mac.doFinal(signedPayload.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
-    private fun post(target: String, payload: String, signature: String) {
+    fun signatureHeader(timestampSeconds: Long, payload: String): String =
+        "t=$timestampSeconds,v1=${sign("$timestampSeconds.$payload")}"
+
+    /** One delivery attempt. Any answer outside 2xx — redirects included — is a failure, as at Stripe. */
+    fun attempt(target: String?, payload: String, timestampSeconds: Long): AttemptResult {
+        if (target == null) return AttemptResult(null, "no_endpoint_configured")
         val safe = SafeTarget.parse(target)
         if (safe == null) {
-            log.warn("Webhook delivery skipped: target is not an allowed http(s) destination")
-            return
+            log.warn("Webhook delivery refused: target is not an allowed http(s) destination")
+            return AttemptResult(null, "target_not_allowed")
         }
-        try {
+        return try {
             val conn = (URL(target).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 3000
-                readTimeout = 3000
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
                 doOutput = true
                 // A receiver must not be able to bounce delivery somewhere else
                 // (e.g. a cloud metadata endpoint) via a 3xx.
                 instanceFollowRedirects = false
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Stripe-Signature", signature)
-                setRequestProperty("User-Agent", "fake-stripe/0.1.2")
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                setRequestProperty("Stripe-Signature", signatureHeader(timestampSeconds, payload))
+                setRequestProperty("User-Agent", BuildInfo.PRODUCT)
             }
             conn.outputStream.use { it.write(payload.toByteArray()) }
-            conn.responseCode // force the request to be sent
+            val status = conn.responseCode
+            runCatching { (if (status >= 400) conn.errorStream else conn.inputStream)?.use { it.readBytes() } }
             conn.disconnect()
+            AttemptResult(status, if (status in 200..299) null else "http_$status")
         } catch (e: Exception) {
             // Log origin only: the path and query string may carry a caller secret.
             log.warn("Webhook delivery to {} failed: {}", safe, e.javaClass.simpleName)
+            AttemptResult(null, e.javaClass.simpleName)
         }
     }
 
-    private companion object {
-        const val QUEUE_CAPACITY = 1_024
+    companion object {
+        const val CONNECT_TIMEOUT_MS = 3_000
+        const val READ_TIMEOUT_MS = 3_000
+
+        /** The path of a target URL for the journal (never its query, which may hold secrets). */
+        fun pathOf(target: String?): String? =
+            target?.let { runCatching { URI(it).rawPath?.ifEmpty { "/" } }.getOrNull() }
     }
 }
 
@@ -105,7 +88,7 @@ class WebhookDispatcher(url: String?, secret: String) {
  * A webhook destination that passed validation, reduced to `scheme://host:port`
  * so it is safe to log (the path and query may contain caller-chosen secrets).
  */
-private class SafeTarget(private val origin: String) {
+internal class SafeTarget(private val origin: String) {
     override fun toString(): String = origin
 
     companion object {

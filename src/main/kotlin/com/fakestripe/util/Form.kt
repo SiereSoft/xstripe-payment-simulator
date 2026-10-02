@@ -17,6 +17,9 @@ class StripeParams(private val entries: List<Pair<String, String>>) {
 
     fun has(key: String): Boolean = entries.any { it.first == key }
 
+    /** Every distinct key, in first-seen order. */
+    fun keys(): Set<String> = entries.mapTo(LinkedHashSet()) { it.first }
+
     /** The last value wins, mirroring how form bodies collapse duplicate scalar keys. */
     fun opt(key: String): String? = entries.lastOrNull { it.first == key }?.second
 

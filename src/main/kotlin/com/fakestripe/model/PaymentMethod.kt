@@ -25,6 +25,11 @@ data class PaymentMethod(
     var billingEmail: String? = null,
     var billingPhone: String? = null,
     val metadata: MutableMap<String, String> = LinkedHashMap(),
+    /**
+     * The customer completed 3-D Secure for this card while setting it up (hosted Checkout).
+     * Cards that only need authentication on-session then charge off-session without it.
+     */
+    var authenticated: Boolean = false,
 ) {
     val brand: String get() = TestCards.forNumber(number).brand
     val funding: String get() = TestCards.forNumber(number).funding

@@ -13,7 +13,10 @@ import com.fakestripe.model.Price
 import com.fakestripe.model.Product
 import com.fakestripe.model.Refund
 import com.fakestripe.model.Subscription
+import com.fakestripe.control.Fault
+import com.fakestripe.control.RequestContext
 import com.fakestripe.util.IdGenerator
+import com.fakestripe.webhook.WebhookJob
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -26,13 +29,31 @@ class DataStore(
     idCount: Int = 0,
     var revision: Long = 0,
     clockState: SimulatorClockState = SimulatorClockState(),
-    wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+    wallTimeSeconds: () -> Long = SimulatorClock.SYSTEM_SECONDS,
     val episodeId: String? = null,
+    /** The seed as the controller gave it (`"lunch-rush-1"`); numeric seeds read the same. */
+    val seedText: String = seed.toString(),
 ) {
     val ids = IdGenerator(seed, idCount)
     val clock = SimulatorClock(clockState, wallTimeSeconds)
     var scenario: ScenarioState? = null
-    var faultInjection: FaultInjectionState? = null
+
+    /** Named faults in installation order (control protocol section 5). */
+    val faults = ArrayList<Fault>()
+
+    /** Position of the seeded request-id stream: how many actor requests this world has served. */
+    var requestSeq: Long = 0
+
+    /** Webhook outbox in creation order, and the counter that names its jobs. */
+    val outbox = LinkedHashMap<String, WebhookJob>()
+    var outboxSeq: Long = 0
+
+    /** Controller switches that belong to the world (carried by snapshots, kept across reset). */
+    var config = SimConfig()
+
+    /** Pre-protocol view of a scenario-seeded response-loss fault (`fault_injection` in the state export). */
+    val faultInjection: FaultInjectionState?
+        get() = faults.firstOrNull { it.origin == Fault.ORIGIN_SCENARIO }?.toLegacy()
 
     val customers = LinkedHashMap<String, Customer>()
     val paymentMethods = LinkedHashMap<String, PaymentMethod>()
@@ -48,12 +69,23 @@ class DataStore(
     val events = LinkedHashMap<String, Event>()
     val idempotency = LinkedHashMap<String, IdempotencyRecord>()
 
-    /** Events emitted during the current write, awaiting webhook delivery (not persisted). */
+    /** Events emitted during the current write, awaiting the outbox (not persisted). */
     val pendingEvents = ArrayList<Event>()
+
+    /** The API request whose events are being recorded (null for automatic events). Transient. */
+    var eventOrigin: RequestContext? = null
+
+    /** A card whose 3-D Secure challenge the customer just passed on the hosted page. Transient. */
+    var authenticatedPaymentMethod: String? = null
 
     /** Record an event: retrievable via the API, persisted, and queued for webhook delivery. */
     fun recordEvent(type: String, dataObject: JsonObject): Event {
-        val event = Event(newId("evt"), now(), type, dataObject, episodeId)
+        val origin = eventOrigin?.takeIf { it.apiRequest }
+        val event = Event(
+            newId("evt"), now(), type, dataObject, episodeId,
+            requestId = origin?.requestId,
+            idempotencyKey = origin?.idempotencyKey,
+        )
         events[event.id] = event
         pendingEvents.add(event)
         return event
@@ -67,6 +99,9 @@ class DataStore(
 
     /** All runtime-created object timestamps flow through the simulator clock. */
     fun now(): Long = clock.now()
+
+    /** The simulated time in epoch milliseconds. */
+    fun nowMs(): Long = clock.nowMs()
 
     fun requireCustomer(id: String): Customer =
         customers[id]?.takeIf { !it.deleted } ?: throw StripeException.resourceMissing("customer", id)
@@ -132,5 +167,19 @@ class DataStore(
         id.startsWith("bps_") -> portalSessions[id]?.toApiJson()
         id.startsWith("evt_") -> events[id]?.toApiJson()
         else -> null
+    }
+}
+
+/** World-level controller configuration (`GET`/`PATCH /v1/admin/config`). */
+@kotlinx.serialization.Serializable
+data class SimConfig(
+    /** `auto` delivers due webhooks in the background; `manual` only on flush. */
+    val webhookDelivery: String = DELIVERY_AUTO,
+    /** The webhook endpoint; the signing secret is never part of the world. */
+    val webhookUrl: String? = null,
+) {
+    companion object {
+        const val DELIVERY_AUTO = "auto"
+        const val DELIVERY_MANUAL = "manual"
     }
 }

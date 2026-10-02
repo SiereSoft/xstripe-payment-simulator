@@ -1,6 +1,7 @@
 package com.fakestripe.seed
 
 import com.fakestripe.cards.TestCards
+import com.fakestripe.control.Fault
 import com.fakestripe.model.Charge
 import com.fakestripe.model.Customer
 import com.fakestripe.model.Invoice
@@ -13,7 +14,6 @@ import com.fakestripe.model.Subscription
 import com.fakestripe.model.SubscriptionItem
 import com.fakestripe.store.DataStore
 import com.fakestripe.store.ClockMode
-import com.fakestripe.store.FaultInjectionState
 import com.fakestripe.store.ScenarioState
 import com.fakestripe.store.SimulatorClock
 import java.util.Random
@@ -73,14 +73,17 @@ object Seeder {
         seed: Long,
         scenario: String? = null,
         clockMode: ClockMode = ClockMode.defaultFor(scenario),
-        wallTimeSeconds: () -> Long = { SimulatorClock.systemTimeSeconds() },
+        wallTimeSeconds: () -> Long = SimulatorClock.SYSTEM_SECONDS,
         episodeId: String? = null,
+        seedText: String = seed.toString(),
+        startMs: Long? = null,
     ): DataStore {
         val store = DataStore(
             seed,
-            clockState = SimulatorClock.resetState(clockMode, seed, scenario),
+            clockState = SimulatorClock.resetState(clockMode, seed, scenario, startMs),
             wallTimeSeconds = wallTimeSeconds,
             episodeId = episodeId,
+            seedText = seedText,
         )
         val rng = Random(seed)
 
@@ -132,14 +135,10 @@ object Seeder {
                     store,
                     scenarioIdOverride = DUPLICATE_PAYMENTS_REFUND_RESPONSE_LOSS,
                 )
-                store.faultInjection = FaultInjectionState(
-                    id = "refund_response_loss_once",
-                    operation = "refund.create",
-                    phase = "after_commit",
-                    responseStatus = 503,
-                    responseCode = "injected_response_loss",
-                    remaining = 1,
-                )
+                // The first refund commits but its response is lost: a retry with the same
+                // Idempotency-Key replays the committed refund. Installed as an ordinary named
+                // fault, so it is listed, journaled and deletable like any other.
+                store.faults += Fault.refundResponseLoss()
             }
             DUPLICATE_PAYMENTS_COLLATERAL_SUBSCRIPTION ->
                 seedDuplicatePaymentsWithCollateralSubscription(store)

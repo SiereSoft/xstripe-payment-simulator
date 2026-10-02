@@ -42,7 +42,16 @@ data class CheckoutSession(
     var paymentIntent: String? = null,
     var invoice: String? = null,
     val metadata: MutableMap<String, String> = LinkedHashMap(),
+    /** `subscription_data[metadata]`: copied onto the subscription the session creates. */
+    val subscriptionMetadata: MutableMap<String, String> = LinkedHashMap(),
+    /** `subscription_data[trial_period_days]` / `subscription_data[trial_end]`. */
+    val trialPeriodDays: Int? = null,
+    val trialEnd: Long? = null,
+    /** A card waiting for the hosted 3-D Secure challenge (payment method id). */
+    var pendingAuthentication: String? = null,
 ) {
+    val hasTrial: Boolean get() = trialPeriodDays != null || trialEnd != null
+
     fun toApiJson(): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "checkout.session")

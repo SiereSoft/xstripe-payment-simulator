@@ -93,7 +93,9 @@ object PaymentIntentMachine {
 
         when (val outcome = TestCards.forNumber(pm.number).outcome) {
             is TestCards.Outcome.Succeed -> settleSuccess(store, pi, pm)
-            is TestCards.Outcome.RequiresAction -> {
+            is TestCards.Outcome.RequiresAction -> if (authenticated(store, pm, outcome, params)) {
+                settleSuccess(store, pi, pm)
+            } else {
                 pi.status = Status.REQUIRES_ACTION
                 pi.nextAction = buildJsonObject {
                     put("type", "use_stripe_sdk")
@@ -107,6 +109,19 @@ object PaymentIntentMachine {
         }
         return pi
     }
+
+    /**
+     * Whether a card that asks for 3-D Secure may be charged without a challenge: the customer just
+     * completed the challenge on the hosted page, or this is an off-session charge on a saved
+     * "authenticate unless set up" card that was authenticated when it was saved.
+     */
+    private fun authenticated(
+        store: DataStore,
+        pm: PaymentMethod,
+        outcome: TestCards.Outcome.RequiresAction,
+        params: StripeParams,
+    ): Boolean = store.authenticatedPaymentMethod == pm.id ||
+        (outcome.unlessSetUp && pm.authenticated && params.bool("off_session") == true)
 
     // --- capture (manual capture flow) --------------------------------------
 

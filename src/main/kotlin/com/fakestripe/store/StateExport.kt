@@ -12,6 +12,8 @@ import com.fakestripe.model.Price
 import com.fakestripe.model.Product
 import com.fakestripe.model.Refund
 import com.fakestripe.model.Subscription
+import com.fakestripe.control.ControlProtocol
+import com.fakestripe.webhook.WebhookDispatcher
 import java.security.MessageDigest
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -35,15 +37,24 @@ private val camelBoundary = Regex("([a-z0-9])([A-Z])")
  */
 fun DataStore.toControlPlaneJson(): JsonObject = buildJsonObject {
     put("object", "admin.state")
-    put("schema_version", 2)
+    put("schema_version", 3)
+    put("revision", revision)
     put("state_revision", revision)
     put("episode_id", episodeId)
     put("seed", seed)
+    put("seed_text", seedText)
     put("id_sequence", ids.count)
     put("clock", buildJsonObject {
         put("mode", clock.mode.wireValue)
         put("current_time", clock.state.manualTime)
+        put("now", clock.state.manualTimeMs?.let(ControlProtocol::iso))
     })
+    put("config", buildJsonObject {
+        put("webhook_delivery", config.webhookDelivery)
+        put("webhook_url_configured", config.webhookUrl != null)
+    })
+    put("faults", JsonArray(faults.map { it.toJson() }))
+    put("webhooks", JsonArray(outbox.values.map { it.toJson(WebhookDispatcher.pathOf(config.webhookUrl)) }))
     put(
         "scenario",
         scenario?.let { exportJson.encodeToJsonElement(ScenarioState.serializer(), it).redacted() }
@@ -121,7 +132,7 @@ private fun String.isSensitive(extraSensitiveKeys: Set<String>): Boolean {
     val normalized = replace(camelBoundary, "$1_$2").lowercase()
     val normalizedExtras = extraSensitiveKeys.map { it.lowercase() }.toSet()
     return normalized in normalizedExtras ||
-        normalized in setOf("secret", "password", "authorization", "api_key") ||
+        normalized in setOf("secret", "password", "authorization", "api_key", "idempotency_key") ||
         normalized.endsWith("_secret") ||
         normalized.endsWith("_password") ||
         normalized.endsWith("_token")
