@@ -11,7 +11,7 @@
 
 It imitates Stripe's HTTP API closely enough that **Stripe's own client libraries — or an autonomous agent — drive it unmodified**, while remembering state across requests and restarts and re-creating an identical world from a seed. That statefulness is what makes it a training/evaluation *environment* rather than just a mock.
 
-It covers the payments core end to end — the PaymentIntent status state machine (the hard, valuable part), refunds, idempotency, the product/price catalog, subscriptions with proration, invoices, and signed webhooks — plus deterministic seeding and Stripe-shaped error envelopes. See [Roadmap](#roadmap) for what's next.
+It covers the payments core end to end — the PaymentIntent status state machine (the hard, valuable part), refunds, idempotency, the product/price catalog, subscriptions with trials, add-ons and proration, invoices, hosted Checkout with 3-D Secure, and signed webhooks with Stripe's retry schedule — plus deterministic seeding and Stripe-shaped error envelopes. Time is simulated: moving the clock renews subscriptions, ends trials, expires Checkout Sessions and retries webhooks, in order. A private controller speaks the [Siere simulator control protocol](docs/CONTROL-PROTOCOL.md) (clock, named faults including real dropped connections, an event journal, snapshots); [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) shows how to drive it and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) what matches Stripe and what is simplified. See [Roadmap](#roadmap) for what's next.
 
 > ⚠️ **Local development and testing only.** This is a simulator: it processes no real
 > payments, its authentication is simulated, and it is not hardened for exposure to
@@ -119,11 +119,11 @@ All configuration is via environment variables:
 | `HOST` | `127.0.0.1` | Bind address. Loopback by default — the actor API accepts any test key, so widening this exposes the whole world to your network. Docker sets `0.0.0.0` inside the container and publishes the port instead. |
 | `CONTROL_PORT` | `12112` | Gym controller HTTP port; must differ from `PORT` |
 | `CONTROL_HOST` | `127.0.0.1` | Controller bind address; keep loopback-only outside isolated container networks |
-| `FAKE_STRIPE_SEED` | `1` | Seed for the initial world (only used when no snapshot exists) |
-| `FAKE_STRIPE_DATA` | `data/state.json` | Where the state snapshot is written |
+| `FAKE_STRIPE_SEED` | `1` | Seed for the initial world (only used when no snapshot exists) and for resets that give none; any text (integers build the same worlds as before 0.2.0) |
+| `FAKE_STRIPE_DATA` | `data/state.json` | Where the state snapshot is written; the event journal (`state.journal.jsonl`) and named snapshots (`snapshots/`) live beside it |
 | `FAKE_STRIPE_CLOCK_MODE` | `free` | Initial clock mode when no snapshot exists: `free` follows wall time; `manual` starts at deterministic seeded time |
-| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables controller endpoints; callers must send the same value in `X-Siere-Control-Token` |
-| `FAKE_STRIPE_WEBHOOK_URL` | _(none)_ | If set, signed events are POSTed here (also settable at runtime via `/v1/admin/webhook`) |
+| `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables the controller (at least 16 characters); callers must send the same value in `X-Siere-Control-Token`. Without a usable token the controller port is not opened |
+| `FAKE_STRIPE_WEBHOOK_URL` | _(none)_ | If set, signed events are POSTed here (also settable at runtime via `/v1/admin/webhook`; the environment wins over a stored endpoint) |
 | `FAKE_STRIPE_WEBHOOK_SECRET` | `whsec_test` | Secret used to sign webhook payloads |
 | `FAKE_STRIPE_PUBLIC_URL` | _(request host)_ | Base URL put in hosted checkout/portal `url`s — set it when a browser reaches the simulator at a different address than the API caller does |
 
@@ -133,7 +133,7 @@ Every `/v1` business endpoint requires an API key, like real Stripe — send `Au
 
 **Live-mode keys are refused.** `sk_live_`, `rk_live_`, and `pk_live_` return `401` with an explanation. This server is not Stripe and must never receive a production credential — if you sent one by accident, rotate it.
 
-Gym lifecycle and verifier endpoints run on a separate controller listener. They are disabled unless `FAKE_STRIPE_CONTROL_TOKEN` is configured and return `403` unless the caller supplies that token in `X-Siere-Control-Token`. Never expose the controller URL or token to the system under test.
+Gym lifecycle and verifier endpoints run on a separate controller listener. Its port is not opened unless `FAKE_STRIPE_CONTROL_TOKEN` holds a token of at least 16 characters (the log says so), and every `/v1/admin/` route returns `403` unless the caller supplies that token in `X-Siere-Control-Token`. Never expose the controller URL or token to the system under test.
 
 ---
 
@@ -153,19 +153,21 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Products** — `POST/GET/POST(update)/DELETE /v1/products[/{id}]`, `GET /v1/products`
 
-**Prices** — `POST/GET/POST(update) /v1/prices[/{id}]`, `GET /v1/prices`
+**Prices** — `POST/GET/POST(update) /v1/prices[/{id}]` (with `product` or inline `product_data`), `GET /v1/prices`
 
-**Subscriptions** — `POST/GET/POST(update)/DELETE /v1/subscriptions[/{id}]`, `GET /v1/subscriptions`
+**Subscriptions** — `POST/GET/POST(update)/DELETE /v1/subscriptions[/{id}]` (trials, several items, `items[]` add/change/remove with prorations), `GET /v1/subscriptions`
+
+**Subscription items** — `GET /v1/subscription_items?subscription=…`, `GET/POST(update) /v1/subscription_items/{id}` (quantity changes with `proration_behavior`)
 
 **Invoices** — `GET/POST(update) /v1/invoices/{id}`, `POST .../pay`, `POST .../void`, `GET /v1/invoices`
 
-**Checkout** — `POST/GET /v1/checkout/sessions[/{id}]`, `POST .../expire`, `GET /v1/checkout/sessions` — plus the **hosted page** the session's `url` points at (see below)
+**Checkout** — `POST/GET /v1/checkout/sessions[/{id}]` (several line items, `subscription_data[metadata|trial_period_days|trial_end]`, `expand[]=subscription|customer`), `POST .../expire`, `GET /v1/checkout/sessions` — plus the **hosted page** the session's `url` points at (see below)
 
 **Customer portal** — `POST /v1/billing_portal/sessions` — plus its hosted page
 
 **Events** — `GET /v1/events/{id}`, `GET /v1/events`; lists can be filtered with `episode_id`
 
-**Controller (non-Stripe, port 12112)** — `GET /v1/admin/health`, `POST /v1/admin/reset?seed=N[&scenario=ID][&clock_mode=free|manual]`, `GET|POST /v1/admin/webhook`, `POST /v1/admin/subscriptions/{id}/renew`, `GET /v1/admin/state`, and `POST /v1/admin/clock/advance?seconds=N`. All require the controller token. `GET /healthz` exists on both listeners.
+**Controller (non-Stripe, port 12112)** — the [control protocol](docs/CONTROL-PROTOCOL.md): `GET /v1/admin/health`, `POST /v1/admin/reset`, `GET /v1/admin/state`, `GET|PATCH /v1/admin/config`, `GET|POST /v1/admin/clock`, `POST /v1/admin/clock/advance`, `GET|POST|DELETE /v1/admin/faults[/{name}]`, `GET /v1/admin/journal`, `GET /v1/admin/webhooks[/{id}]`, `POST /v1/admin/webhooks/flush`, `POST /v1/admin/webhooks/{id}/replay`, `GET|POST|DELETE /v1/admin/snapshots[/{name}]`, `POST /v1/admin/snapshots/{name}/restore`, plus `GET|POST /v1/admin/webhook` and `POST /v1/admin/subscriptions/{id}/renew`. All require the controller token; [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) documents them. `GET /healthz` exists on both listeners.
 
 Cross-cutting: **idempotency** (`Idempotency-Key` header on POSTs) and **signed webhooks** (see below).
 
@@ -209,7 +211,8 @@ The card **number** decides the outcome (Stripe's documented test cards). You ca
 | `pm_card_chargeDeclinedLostCard` / `…9987` | Declined — `lost_card` |
 | `pm_card_chargeDeclinedExpiredCard` / `…0069` | Declined — `expired_card` |
 | `pm_card_chargeDeclinedIncorrectCvc` / `…0127` | Declined — `incorrect_cvc` |
-| `pm_card_authenticationRequired` / `4000 0025 0000 3155` | `requires_action` (3-D Secure) |
+| `pm_card_authenticationRequired` / `4000 0025 0000 3155` | `requires_action` (3-D Secure); once authenticated on the hosted page and saved, off-session renewals succeed |
+| `pm_card_threeDSecure2Required` / `4000 0000 0000 3220` | `requires_action` (3-D Secure) every time, including renewals |
 
 ---
 
@@ -218,12 +221,16 @@ The card **number** decides the outcome (Stripe's documented test cards). You ca
 Training requires reproducible starting states. `FAKE_STRIPE_SEED=N` (or `POST /v1/admin/reset?seed=N`) builds a world of customers, saved cards and past payments where **the same seed always yields the same objects, down to their IDs**. IDs are drawn from a seeded PRNG, and the generator's position is snapshotted so it resumes deterministically after a restart.
 
 ```bash
-curl -X POST "http://localhost:12112/v1/admin/reset?seed=42&episode_id=run-42-001" \
-  -H "X-Siere-Control-Token: gym_control_local"
-# -> { "object": "admin.reset", "seed": 42, "episode_id": "run-42-001",
-#      "scenario": null, "state_revision": 1,
-#      "clock": { "mode": "free", "current_time": ... }, "task_context": {}, ... }
+curl -X POST "http://localhost:12112/v1/admin/reset" \
+  -H "X-Siere-Control-Token: gym_control_local" -H "Content-Type: application/json" \
+  -d '{"seed": "42", "episode_id": "run-42-001", "now": "2026-10-05T08:00:00.000Z"}'
+# -> { "status": "ok", "simulator": "stripe", "version": "0.2.0", "protocol": 1, "seed": "42",
+#      "episode_id": "run-42-001", "clock": { "now": "2026-10-05T08:00:00.000Z", "mode": "manual", ... },
+#      "revision": 7, "journal_seq": 311, "object": "admin.reset", "scenario": null, "task_context": {}, ... }
 ```
+
+A JSON reset defaults to a manual clock. The 0.1.x query form (`?seed=42&episode_id=…`) still
+works and keeps its old default (a free clock without a scenario). Any text is a seed.
 
 Pass a scenario ID to build a task-ready Gym world. The reset response returns
 only learner-safe instruction context; the privileged state export contains the
@@ -276,33 +283,42 @@ docker compose logs fake-stripe | grep 'episode_id=run-42-001'
 
 ### Episode clock
 
-Legacy resets without a scenario default to `clock_mode=free`, which follows host
-wall time. Scenario resets default to `clock_mode=manual`: their starting time is
-derived from the seed and scenario, so the same pair reproduces the same object
-timestamps across runs. Either mode can be selected explicitly on reset.
+A manual clock (the default for JSON and scenario resets) starts at `now`, or at a time derived
+from the seed and scenario, so the same pair reproduces the same object timestamps across runs. A
+free clock follows host wall time.
 
-The controller can advance a manual clock without exposing that capability to an
-agent. The new time and any resulting Checkout Session expirations are persisted
-before success is returned:
+The controller moves a manual clock without exposing that capability to an agent — to an absolute
+time (`POST /v1/admin/clock {"now": …}`) or forward (`POST /v1/admin/clock/advance {"seconds": …}`,
+or the 0.1.x `?seconds=N`). Everything that falls due on the way is settled **in time order** —
+Checkout Session expiry, `customer.subscription.trial_will_end`, trial ends, renewals with their
+invoices, payments and dunning, and webhook retries — so one long move ends in the same world as
+many short ones:
 
 ```bash
-curl -X POST "http://localhost:12112/v1/admin/clock/advance?seconds=3600" \
-  -H "X-Siere-Control-Token: gym_control_local"
-# -> { "object": "admin.clock", "mode": "manual", "current_time": ...,
-#      "advanced_by": 3600, "state_revision": 2 }
+curl -X POST "http://localhost:12112/v1/admin/clock/advance" \
+  -H "X-Siere-Control-Token: gym_control_local" -H "Content-Type: application/json" \
+  -d '{"seconds": 2592000}'
+# -> { "now": "...", "mode": "manual", "settled": 3, "current_time": ..., "state_revision": 9, ... }
 ```
 
-Advancing a free clock returns HTTP `400`. Manual time and mode survive process
-restarts, and every runtime-created object and event obtains its timestamp from
-this clock.
+Moving a free clock answers `409 clock_not_manual` (0.1.x answered `400`); moving backwards answers
+`409 clock_backwards`. Manual time and mode survive process restarts, and every runtime-created object
+and event obtains its timestamp from this clock. In free mode the same work settles as the wall clock
+reaches it.
 
 ## Persistence
 
 State lives in memory and is snapshotted to `FAKE_STRIPE_DATA` after every mutation (including recorded declines). On startup the snapshot is loaded if present, so **a customer created before a restart is still there afterward**. Delete the snapshot (or call `reset`) to start clean.
 
-Each persisted mutation advances a monotonic `state_revision`. The revision is
-stored in the snapshot, survives process restarts, advances across resets and
-manual clock changes, and does not change when state is merely exported.
+Each persisted mutation advances a monotonic `revision` (also exported as `state_revision`). The
+revision is stored in the snapshot, survives process restarts, advances across resets, restores and
+clock moves, never goes back, and does not change when state is merely exported.
+
+Named snapshots (`POST /v1/admin/snapshots`, `.../{name}/restore`) save and restore the whole world —
+objects, clock, identifier positions, faults, webhook outbox and configuration — as files in
+`snapshots/` beside the state file; they survive restarts and resets. The event journal
+(`GET /v1/admin/journal`) records every actor request, webhook attempt, scheduled change, fault and
+control action with a sequence number that never restarts.
 
 ## Privileged state export
 
@@ -357,20 +373,26 @@ HTTP status codes follow Stripe: `400` invalid request / missing param, `402` ca
 
 **Idempotency**: any POST carrying an `Idempotency-Key` header caches its first response. A repeat with the same key replays that exact response (with an `Idempotent-Replayed: true` header) instead of, say, charging twice; a repeat with the *same key but a different body* returns a `400 idempotency_error`. Keys survive restarts (they're snapshotted).
 
-The `duplicate_payments_refund_response_loss` Gym scenario consumes one deterministic fault after
-the refund mutation commits. The first response is `503` with `Stripe-Should-Retry: true`, while
-the successful response has already been bound to the request's idempotency key. Repeating the
-exact request returns that cached `200` and does not invoke the refund route again. The privileged
-state export records the fault ID, phase, remaining count, and injected count; actor routes cannot
-configure the plan.
+The `duplicate_payments_refund_response_loss` Gym scenario installs one named fault
+(`refund-response-loss`, kind `commit_then_error` on `refund.create`). The first response is `503`
+with `Stripe-Should-Retry: true`, while the successful response has already been bound to the
+request's idempotency key. Repeating the exact request returns that cached `200` and does not invoke
+the refund route again. The fault is listed by `GET /v1/admin/faults` and in the state export
+(`faults`, and the 0.1.x `fault_injection` view); actor routes cannot configure it. The controller
+installs any other fault the same way — errors, latency, and real dropped connections before or
+after the commit.
 
 ## Recurring billing (subscriptions & invoices)
 
 `POST /v1/subscriptions` (with `customer` and `items[0][price]`) bills a first invoice for the period and, if the customer has a payment method, charges it via a real PaymentIntent — so the invoice comes back `paid` with a `payment_intent`. The seeded world ships a small Basic/Pro catalog so this works out of the box.
 
-**Upgrades with proration** are the rich, multi-step case. `POST /v1/subscriptions/{id}` with a new `items[0][price]` (e.g. Basic monthly → Pro annual) generates a `subscription_update` invoice with two proration lines — a credit for unused time on the old price and a charge for the remainder on the new price — and switches the billing period. A checker can assert the new invoice total. `DELETE` cancels immediately; `cancel_at_period_end=true` schedules it.
+**Trials.** `trial_period_days` or `trial_end` (and `subscription_data[…]` on Checkout) start a `trialing` subscription with a $0 first invoice; `customer.subscription.trial_will_end` fires three days before the end, and at `trial_end` the first real invoice is created and collected.
 
-**Renewals and dunning.** There is no background billing clock, so renewals happen on demand: `POST /v1/admin/subscriptions/{id}/renew` rolls the subscription into its next period, issues a `subscription_cycle` invoice and tries to collect. With a good card that is a second `invoice.paid`; with a declining one the invoice stays `open`, `invoice.payment_failed` fires and the subscription goes **`past_due`** — not cancelled, because real dunning retries for days. A subscription already set to `cancel_at_period_end` simply ends instead of renewing. A first invoice that never collects leaves the subscription `incomplete`, as it does at Stripe.
+**Quantity changes and prorations.** `POST /v1/subscription_items/{id}` (or `items[]` on `POST /v1/subscriptions/{id}`, which can also add and remove items) prorates to the second: a credit for unused time and a charge for the remaining time, added to the next invoice (`create_prorations`, the default), invoiced now (`always_invoice`) or skipped (`none`).
+
+**Upgrades with proration** are the rich, multi-step case. `POST /v1/subscriptions/{id}` with a new `items[0][price]` of another interval (e.g. Basic monthly → Pro annual) generates a `subscription_update` invoice with two proration lines — a credit for unused time on the old price and a charge for the remainder on the new price — and switches the billing period. A checker can assert the new invoice total. `DELETE` cancels immediately; `cancel_at_period_end=true` schedules it.
+
+**Renewals and dunning.** When the simulated clock reaches `current_period_end` the subscription rolls into its next period, issues a `subscription_cycle` invoice and tries to collect; `POST /v1/admin/subscriptions/{id}/renew` forces the same thing without moving time. With a good card that is a second `invoice.paid`; with a declining one the invoice stays `open`, `invoice.payment_failed` fires and the subscription goes **`past_due`** — not cancelled, because real dunning retries for days. A subscription already set to `cancel_at_period_end` simply ends instead of renewing. A first invoice that never collects leaves the subscription `incomplete`, as it does at Stripe.
 
 **Deleting a customer** (`DELETE /v1/customers/{id}`) immediately cancels their non-terminal subscriptions, emitting `customer.subscription.deleted` for each — matching Stripe, and the reason an erasure/GDPR path can be tested here at all.
 
@@ -390,7 +412,7 @@ curl -s -X POST "http://localhost:12111/v1/checkout/sessions" -u sk_test_123: \
 
 Open that URL and you get a plain HTML page (no JavaScript) showing the amount, interval and email, a card field that accepts any [test card](#test-cards), and two buttons:
 
-- **Pay** — creates the customer + subscription, emits **`checkout.session.completed`**, *then* `303`s to `success_url` (with `{CHECKOUT_SESSION_ID}` substituted). A declining card records the failed attempt and grants nothing: no customer, no subscription, session still `open`. Pressing Pay twice never bills twice.
+- **Pay** — creates the customer + subscription (one item per line item, with `subscription_data[metadata]` and any trial), emits **`checkout.session.completed`**, *then* `303`s to `success_url` (with `{CHECKOUT_SESSION_ID}` substituted). A declining card records the failed attempt and grants nothing: no customer, no subscription, session still `open`. An authentication card (`4000 0025 0000 3155`) first goes through a simulated 3-D Secure page with **Complete** and **Fail** buttons. Pressing Pay twice never bills twice.
 - **Cancel** — redirects to `cancel_url`, creating nothing.
 
 > The **event**, not the redirect, is what should grant access. An integration that upgrades a user on the return trip from `success_url` looks identical in a browser and is broken in production — so the simulator keeps both paths honest: the redirect carries no authority, and the event is emitted only once the customer and subscription really exist. `client_reference_id` is echoed back on the event so you can find whoever started the checkout.
@@ -399,7 +421,14 @@ Open that URL and you get a plain HTML page (no JavaScript) showing the amount, 
 
 ## Webhooks & events
 
-Mutations record **Events** (`customer.created`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`, `checkout.session.completed`, `customer.subscription.created|updated|deleted`, …), retrievable at `/v1/events` and filterable by `episode_id`. Correlation stays internal and is deliberately omitted from provider Event JSON. If a webhook URL is configured (env or `POST /v1/admin/webhook`), each event is POSTed to it with a real `Stripe-Signature: t=<ts>,v1=<hmac>` header — HMAC-SHA256 over `"<ts>.<body>"` with the endpoint secret, exactly what `stripe.Webhook.constructEvent` verifies. Delivery is asynchronous and never blocks the API response.
+Mutations record **Events** (`customer.created`, `payment_intent.succeeded`, `charge.refunded`, `invoice.paid`, `invoice.payment_failed`, `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.created|updated|deleted|trial_will_end`, …), retrievable at `/v1/events` and filterable by `episode_id`. Events caused by an API request carry its `Request-Id` and `Idempotency-Key` in `request`. Correlation stays internal and is deliberately omitted from provider Event JSON. If a webhook URL is configured (env or `POST /v1/admin/webhook`), each event is POSTed to it with a real `Stripe-Signature: t=<ts>,v1=<hmac>` header — HMAC-SHA256 over `"<ts>.<body>"` with the endpoint secret, exactly what `stripe.Webhook.constructEvent` verifies.
+
+Deliveries go through a **persisted outbox** and never block the API response or get dropped: a
+failed attempt (non-2xx, redirect, no answer) is retried on the simulated clock after 1, 2, 4, 8, 16
+and 32 hours — Stripe's live-mode "up to 3 days with an exponential back off" — and then marked
+`exhausted`. `PATCH /v1/admin/config {"webhook_delivery": "manual"}` holds deliveries until
+`POST /v1/admin/webhooks/flush`; `GET /v1/admin/webhooks` lists the outbox and
+`POST /v1/admin/webhooks/{id}/replay` re-sends an event's exact bytes.
 
 ```bash
 # Point deliveries at your receiver, then watch signed events arrive
@@ -420,7 +449,10 @@ deliveries at a metadata endpoint.
 
 ```
 src/main/kotlin/com/fakestripe/
-├── Application.kt              # Ktor wiring: auth, idempotency, routing, error rendering
+├── Main.kt                     # Process entry point (starts both listeners)
+├── Application.kt              # Ktor wiring: request ids, journal, faults, auth, idempotency, routing
+├── BuildInfo.kt                # Version (generated from build.gradle.kts) and API version
+├── control/                    # Control protocol: faults, journal, operations, request ids, snapshots
 ├── billing/
 │   ├── BillingOps.kt          # Subscription create/upgrade(proration)/renew/cancel + invoicing
 │   └── CheckoutOps.kt         # Checkout Session lifecycle (create -> pay -> completed event)
@@ -435,16 +467,21 @@ src/main/kotlin/com/fakestripe/
 │   └── PaymentIntentMachine.kt# The full PaymentIntent lifecycle
 ├── store/
 │   ├── DataStore.kt           # In-memory world + event recording
-│   ├── Simulator.kt           # Lock + read/write/reset + webhook draining
+│   ├── Simulator.kt           # Lock + read/write/reset/restore, clock moves, outbox delivery
+│   ├── Scheduler.kt           # Work that falls due on the clock (expiry, trials, renewals, retries)
 │   ├── SimulatorClock.kt      # Free/manual episode time + deterministic reset time
-│   ├── Snapshot.kt            # JSON snapshot-to-disk load/save
+│   ├── Snapshot.kt            # The persisted world document (state file and named snapshots)
 │   └── Idempotency.kt         # Cached idempotent responses
-├── webhook/WebhookDispatcher.kt # Signs + POSTs events to a configurable URL
+├── webhook/                   # Outbox jobs + retry schedule; signing + one delivery attempt
 ├── routes/                    # One file per resource + Http helpers
 └── util/                      # Deterministic IDs + Stripe form-param parsing
-src/test/kotlin/com/fakestripe/  # SimulatorTest, Refund, Idempotency, ProductPrice,
-│                                #   Subscription, Checkout, BillingPortal, Webhook,
-│                                #   StripeJavaSdkTest
+src/test/kotlin/com/fakestripe/  # ControlProtocolTest (protocol section 9 over real listeners),
+│                                #   WebhookOutbox, Scheduler, Trial, Proration, CheckoutFidelity,
+│                                #   RequestId, StripeJavaSdk(Billing)Test, ApiSurface, and the 0.1 suites
+docs/                          # CONTROL-PROTOCOL (canonical copy), AGENT-GUIDE, COMPATIBILITY
+contracts/                     # Pinned Stripe OpenAPI subset (API 2024-06-20) + manifest with SHA-256
+tools/check_upstream.py        # Weekly drift check against github.com/stripe/openapi
+conformance/                   # Record/replay harness + committed golden recordings
 sdk-tests/                     # official stripe-python SDK e2e suite (pytest)
 postman/                       # Postman collection (+ generator that keeps it in sync)
 ```
@@ -458,9 +495,11 @@ The strongest proof of realism is Stripe's **own client libraries, unmodified**,
 
 ## Postman collection
 
-[`postman/fake-stripe.postman_collection.json`](postman/fake-stripe.postman_collection.json) covers all endpoints, with collection-level `Bearer {{apiKey}}` auth, separate `{{baseUrl}}` and `{{controlUrl}}` variables, and scripts that capture created IDs so requests chain. Controller requests carry `{{controlToken}}`. It's produced by [`postman/generate_collection.py`](postman/generate_collection.py) — **when an endpoint changes, edit the generator and re-run it** so the collection never drifts.
+[`postman/fake-stripe.postman_collection.json`](postman/fake-stripe.postman_collection.json) covers the 0.1 endpoints (the 0.2 additions and the control protocol are documented in [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md)), with collection-level `Bearer {{apiKey}}` auth, separate `{{baseUrl}}` and `{{controlUrl}}` variables, and scripts that capture created IDs so requests chain. Controller requests carry `{{controlToken}}`. It's produced by [`postman/generate_collection.py`](postman/generate_collection.py) — **when an endpoint changes, edit the generator and re-run it** so the collection never drifts.
 
 ## Tested
+
+`./gradlew check` runs 99 tests and fails below 90 % line coverage (Kover). `ControlProtocolTest` starts both Netty listeners exactly as `main` does and checks section 9 of the control protocol: authentication, health, reset determinism, clock moves and their 409s, every fault kind including a real dropped connection (raw socket), `skip`/`count`/ordering, persistence across restart, journal paging, numbering and redaction, webhook flush/reverse/replay/both delivery modes, and snapshots. Further suites cover the webhook retry schedule, time-ordered scheduling, trials, multi-item Checkout, quantity prorations, seeded request ids and the stripe-java SDK on all of it. CI also replays the committed conformance recordings (`conformance/compare.py verify`).
 
 The suite runs through the real routing, state machine, and billing logic (`./gradlew test`): confirm/decline/manual-capture, refunds (partial→full→over-refund), idempotency (replay + conflict), products/prices, a full subscribe → upgrade-with-proration → cancel flow, **hosted checkout** (pay, decline, double-pay, cancel, expiry, `checkout.session.completed` contents), **customer portal** cancel/resume, **customer deletion cancelling subscriptions**, **renewal and dunning** (`past_due` + `invoice.payment_failed`), signed webhook delivery (a real local receiver verifies the HMAC), Stripe-shaped `404`, missing-key `401`, seed determinism, **privileged full-state export authorization/redaction/revision persistence**, **20-seed generation, solvability, variation, and exact reproduction for all five Gym scenarios**, **free/manual clock determinism, authorization, persistence, rollback, and time-driven expiry**, **actor/controller route and listener isolation**, **episode-correlated logs/events with unchanged provider shapes**, failed-reset persistence safety, and the full unmodified **stripe-java** flow (which also deserializes both hosted-session objects). A separate **stripe-python** suite (`pytest sdk-tests`) exercises the same flows through the official Python SDK. Persistence-across-restart and cross-seed determinism are verified against the running server.
 
@@ -468,13 +507,13 @@ The suite runs through the real routing, state machine, and billing logic (`./gr
 
 ## Roadmap
 
-Done: payments-core object model + PaymentIntent state machine, **refunds**, **idempotency keys**, **products/prices/subscriptions/invoices** (with proration, on-demand renewal and dunning), **hosted Checkout + customer portal pages**, **signed webhooks + events**, deterministic seeding, snapshot persistence, Stripe-shaped errors, API-key auth, and **both official SDKs (java + python) running unmodified** against the server.
+Done: payments-core object model + PaymentIntent state machine, **refunds**, **idempotency keys**, **products/prices/subscriptions/invoices** (with trials, add-ons, prorations, clock-driven renewal and dunning), **hosted Checkout (with simulated 3-D Secure) + customer portal pages**, **signed webhooks with a persisted outbox and Stripe's retry schedule**, the **Siere control protocol** (simulated clock, named faults, event journal, snapshots), deterministic seeding and request ids, snapshot persistence, Stripe-shaped errors, API-key auth, a pinned Stripe OpenAPI contract with a weekly drift check, and **both official SDKs (java + python) running unmodified** against the server.
 
 Next, in build order:
 
 1. **Task pack** — a set of graded tasks (plain-English instruction + seeded world + automatic checker) covering easy → hard, so the gym ships with a benchmark, not just an API.
 2. **MCP layer** — expose the API as tools an agent can call directly (or point the open-source Stripe MCP server at it).
-3. **Rest of the validation suite** — contract tests against Stripe's published OpenAPI, response-shape diffs vs `stripe-mock`, and record/replay golden files from a Stripe test-mode account.
+3. **Rest of the validation suite** — response-shape checks against the pinned OpenAPI subset in `contracts/`, response-shape diffs vs `stripe-mock`, and golden files recorded from a Stripe test-mode account (the committed ones are the simulator's own baseline).
 4. **A worked training/eval example** — run a small model against the task pack and publish the score curve.
 
 ## Security model
@@ -484,9 +523,9 @@ what it does and does not give you:
 
 **What is enforced**
 
-- The controller plane (reset, clock, state export, webhook config) is a **separate
-  listener on a separate port behind its own token**, disabled entirely unless
-  `FAKE_STRIPE_CONTROL_TOKEN` is set. Admin routes are never registered on the actor
+- The controller plane (reset, clock, faults, journal, snapshots, state export, webhook
+  config) is a **separate listener on a separate port behind its own token**, not opened at
+  all unless `FAKE_STRIPE_CONTROL_TOKEN` holds at least 16 characters. Admin routes are never registered on the actor
   listener, and `ControlPlaneIsolationTest` locks that down.
 - Both listeners **default to loopback**. Exposing either is an explicit act.
 - The state export **redacts** card numbers, client secrets, and every
@@ -511,9 +550,8 @@ credentials, or production data. Full detail in [DISCLAIMER.md](DISCLAIMER.md) a
 ## Honest limitations (today)
 
 - Payments core + recurring billing only: no Connect, Issuing, Terminal, Radar, Tax, Treasury, real card networks.
-- `requires_action` (3-D Secure) is represented but there is no completion endpoint to walk it to `succeeded`; on the hosted checkout page a 3-D Secure card is refused with an explanation rather than pretending to authenticate.
-- Proration uses fixed interval lengths (30-day month, 365-day year) rather than calendar-exact dates — deterministic, so totals are predictable for checkers, but not identical to real Stripe's day counting.
-- Subscriptions don't auto-advance to the next period (no background billing clock); renewals are triggered explicitly via `POST /v1/admin/subscriptions/{id}/renew`.
+- `requires_action` (3-D Secure) on a PaymentIntent created through the API has no completion endpoint; the hosted Checkout page simulates the challenge.
+- Proration uses fixed interval lengths (30-day month, 365-day year) rather than calendar-exact dates — deterministic, so totals are predictable for checkers, but not identical to real Stripe's day counting. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) lists every deliberate simplification.
 - The hosted pages redirect like Stripe but look nothing like it, and Checkout supports only `payment` and `subscription` modes with existing prices — no `setup` mode, `price_data`, promotion codes, tax, or address collection.
 - Card numbers are accepted directly for convenience (real Stripe restricts raw PANs); intentional for a local test simulator.
 
