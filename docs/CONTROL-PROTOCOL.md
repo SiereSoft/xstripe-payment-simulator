@@ -1,8 +1,9 @@
 # Siere simulator control protocol, version 1
 
 Every provider simulator used by SSF (`xstripe-payment-simulator`, `xsumup-payments-simulator`, `xwolt-api-simulator`,
-`xglovo-simulator`, `xfiscal-device-simulator`) implements this protocol on its private controller, so a scenario runner
-(`ssf-platform :tools:scenarios`) drives all of them the same way: one clock, named faults, one event journal, snapshots.
+`xglovo-simulator`, `xfiscal-device-simulator`, `xkitchen-printer-simulator`) implements this protocol on its private
+controller, so a scenario runner (`ssf-platform :tools:scenarios`) drives all of them the same way: one clock, named
+faults, one event journal, snapshots.
 
 This document is canonical. Each simulator keeps a verbatim copy in `docs/CONTROL-PROTOCOL.md` and a
 `ControlProtocolTest` that exercises every requirement below against its real listeners. A change to this document bumps
