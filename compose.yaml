@@ -23,6 +23,19 @@ services:
       # Override with a random value in any shared or pilot environment:
       #   FAKE_STRIPE_CONTROL_TOKEN=$(openssl rand -hex 24) docker compose up
       FAKE_STRIPE_CONTROL_TOKEN: "${FAKE_STRIPE_CONTROL_TOKEN:-gym_control_local}"
+      # The account GET /v1/account answers (the SSF enrollment server checks it).
+      FAKE_STRIPE_ACCOUNT_ID: "${FAKE_STRIPE_ACCOUNT_ID:-acct_ssf_local}"
+      # Webhook endpoint and secret. For the SSF enrollment server on the host:
+      #   FAKE_STRIPE_WEBHOOK_URL=http://host.docker.internal:12621/api/stripe/events
+      #   FAKE_STRIPE_WEBHOOK_SECRET=whsec_...   (the enrollment server's secret)
+      FAKE_STRIPE_WEBHOOK_URL: "${FAKE_STRIPE_WEBHOOK_URL:-}"
+      FAKE_STRIPE_WEBHOOK_SECRET: "${FAKE_STRIPE_WEBHOOK_SECRET:-whsec_test}"
+      # 1: sign webhooks with the host's wall clock instead of the simulated time, for
+      # receivers that check Stripe-Signature's t= against their own clock.
+      FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK: "${FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK:-0}"
+    extra_hosts:
+      # Lets FAKE_STRIPE_WEBHOOK_URL reach a receiver on the host (Linux needs this mapping).
+      - "host.docker.internal:host-gateway"
     volumes:
       # Persist the in-memory state snapshot across restarts.
       - ./data:/data

@@ -125,6 +125,8 @@ All configuration is via environment variables:
 | `FAKE_STRIPE_CONTROL_TOKEN` | _(disabled)_ | Enables the controller (at least 16 characters); callers must send the same value in `X-Siere-Control-Token`. Without a usable token the controller port is not opened |
 | `FAKE_STRIPE_WEBHOOK_URL` | _(none)_ | If set, signed events are POSTed here (also settable at runtime via `/v1/admin/webhook`; the environment wins over a stored endpoint) |
 | `FAKE_STRIPE_WEBHOOK_SECRET` | `whsec_test` | Secret used to sign webhook payloads |
+| `FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK` | `0` | `1`: sign webhooks (`Stripe-Signature` `t=`) with the host's wall clock instead of the simulated time, for receivers that check the timestamp against their own clock |
+| `FAKE_STRIPE_ACCOUNT_ID` | `acct_ssf_local` | The account id `GET /v1/account` answers |
 | `FAKE_STRIPE_PUBLIC_URL` | _(request host)_ | Base URL put in hosted checkout/portal `url`s — set it when a browser reaches the simulator at a different address than the API caller does |
 
 ### Authentication

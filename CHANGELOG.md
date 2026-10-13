@@ -5,6 +5,42 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Stripe API versions: `Stripe-Version: 2025-03-31.basil` or later is answered in basil's shapes —
+  the current period on subscription items, invoices with `parent.subscription_details` and
+  InvoicePayments (`expand[]=payments`, `GET /v1/invoice_payments[/{id}]`), invoice lines with
+  `pricing` and `parent`, PaymentIntents without `invoice`. Requests without the header keep the
+  2024-06-20 shapes; the response `Stripe-Version` header names the version used.
+- Checkout `line_items[n][price_data]` (with `product` or `product_data`, `recurring`), which creates
+  an inactive Price and a Product as Stripe does; `payment_intent_data[metadata|description]` in
+  payment mode; `payment_method_types`, `automatic_tax[enabled]=false`, `allow_promotion_codes`;
+  `400 amount_too_small` / `amount_too_large` / `currency_not_supported` for totals and currencies
+  Stripe cannot charge.
+- `GET /v1/account` (`FAKE_STRIPE_ACCOUNT_ID`, default `acct_ssf_local`).
+- The `created` filter (`created`, `created[gt|gte|lt|lte]`) on every list; Checkout Session lists
+  by `status` and `payment_intent`.
+- Subscriptions show `cancel_at`; invoices show `status_transitions`, `attempted`,
+  `amount_overpaid` and the credit-note amounts.
+- `FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK=1` (or `PATCH /v1/admin/config
+  {"webhook_signature_clock":"wall"}`) signs webhooks with the host's wall clock, for receivers that
+  check the timestamp against their own clock while the simulated clock has moved.
+- Controller: `GET /v1/admin/subscriptions`, `POST /v1/admin/subscriptions/{id}/fail_next_renewal`
+  (dunning on demand) and `POST /v1/admin/checkout/sessions/{id}/complete` (the hosted page's Pay
+  and 3-D Secure answer in one call). `docs/AGENT-GUIDE.md` has an "SSF enrollment" walkthrough.
+- `compose.yaml` passes the account id, webhook endpoint/secret and wall-clock signing through, and
+  maps `host.docker.internal` to the host.
+
+### Changed
+
+- A declined invoice payment keeps its PaymentIntent linked (`invoice.payment_intent`, was `null`).
+- Voiding an invoice records `status_transitions.voided_at`, cancels its open InvoicePayment and
+  emits `invoice.voided`.
+- The conformance recordings were re-baselined: stripe-python 15.3.0 pins `2026-06-24.dahlia`, so
+  its subscriptions and invoices now come back in the basil shapes.
+
 ## [0.2.0] — 2026-10-02
 
 ### Added

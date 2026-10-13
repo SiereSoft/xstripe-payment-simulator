@@ -30,7 +30,9 @@ ENV PORT=12111 \
     CONTROL_PORT=12112 \
     CONTROL_HOST=127.0.0.1 \
     FAKE_STRIPE_SEED=1 \
-    FAKE_STRIPE_DATA=/data/state.json
+    FAKE_STRIPE_DATA=/data/state.json \
+    FAKE_STRIPE_ACCOUNT_ID=acct_ssf_local \
+    FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK=0
 
 # State snapshot lives here so it survives container restarts.
 VOLUME ["/data"]
