@@ -1,6 +1,7 @@
 package com.fakestripe.routes
 
 import com.fakestripe.billing.CheckoutOps
+import com.fakestripe.control.ControlException
 import com.fakestripe.hosted.date
 import com.fakestripe.hosted.esc
 import com.fakestripe.hosted.money
@@ -14,6 +15,8 @@ import io.ktor.server.application.call
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * `/v1/checkout/sessions` plus the page its `url` points at.
@@ -46,9 +49,13 @@ fun Route.checkoutRoutes(sim: Simulator) {
         val json = sim.read { store ->
             val customer = params.opt("customer")
             val subscription = params.opt("subscription")
-            val all = store.checkoutSessions.values.filter {
+            val paymentIntent = params.opt("payment_intent")
+            val status = params.opt("status")
+            val all = store.checkoutSessions.values.map { CheckoutOps.expireIfStale(store, it) }.filter {
                 (customer == null || it.customer == customer) &&
-                    (subscription == null || it.subscription == subscription)
+                    (subscription == null || it.subscription == subscription) &&
+                    (paymentIntent == null || it.paymentIntent == paymentIntent) &&
+                    (status == null || it.status == status)
             }
             store.paginated(all, "/v1/checkout/sessions", params, { it.id }, { it.created }, { it.toApiJson() })
         }
@@ -123,6 +130,46 @@ fun Route.checkoutRoutes(sim: Simulator) {
                 page("Checkout cancelled", "<h1>Checkout cancelled</h1><p class=\"muted\">Nothing was charged and nothing was created.</p>"),
             )
         }
+    }
+}
+
+/**
+ * Controller shortcut for the hosted page: `POST /v1/admin/checkout/sessions/{id}/complete`
+ * `{"card": "4242424242424242", "authentication": "complete"}` does what a customer does on the page
+ * (Pay, and for a 3-D Secure card the challenge answer). Answers `{outcome, message, redirect,
+ * session}` with `outcome` `complete`, `failed` or `requires_authentication`.
+ */
+fun Route.checkoutAdminRoutes(sim: Simulator) {
+    post("/v1/admin/checkout/sessions/{id}/complete") {
+        val id = call.parameters["id"]!!
+        val input = call.controlInput()
+        val card = input.string("card") ?: "4242424242424242"
+        val authentication = input.string("authentication") ?: "complete"
+        if (authentication !in setOf("complete", "fail", "none")) {
+            throw ControlException.invalid("`authentication` must be complete, fail or none.", "authentication")
+        }
+        val json = sim.write { store ->
+            val session = store.requireCheckoutSession(id)
+            var result = CheckoutOps.pay(store, session, card)
+            if (result is CheckoutOps.PayResult.Authenticate && authentication != "none") {
+                result = CheckoutOps.authenticate(store, session, authentication)
+            }
+            buildJsonObject {
+                when (result) {
+                    is CheckoutOps.PayResult.Redirect -> {
+                        put("outcome", if (session.status == "complete") "complete" else "failed")
+                        put("redirect", result.url)
+                    }
+                    is CheckoutOps.PayResult.Authenticate -> put("outcome", "requires_authentication")
+                    is CheckoutOps.PayResult.Failed -> {
+                        put("outcome", "failed")
+                        put("message", result.message)
+                    }
+                }
+                put("session", CheckoutOps.expireIfStale(store, session).toApiJson())
+            }
+        }
+        call.respondStripe(json)
     }
 }
 

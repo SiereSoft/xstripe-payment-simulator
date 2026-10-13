@@ -7,6 +7,7 @@ import com.fakestripe.model.CheckoutSession
 import com.fakestripe.model.Customer
 import com.fakestripe.model.Event
 import com.fakestripe.model.Invoice
+import com.fakestripe.model.InvoicePayment
 import com.fakestripe.model.PaymentIntent
 import com.fakestripe.model.PaymentMethod
 import com.fakestripe.model.Price
@@ -139,11 +140,16 @@ class DataStore(
     fun requirePortalSession(id: String): BillingPortalSession =
         portalSessions[id] ?: throw StripeException.resourceMissing("billing_portal.session", id)
 
-    fun subscriptionJson(sub: Subscription): JsonObject =
-        sub.toApiJson { prices[it]?.toApiJson() }
+    /** A subscription as the API answers it; [basil] for 2025-03-31.basil and later versions. */
+    fun subscriptionJson(sub: Subscription, basil: Boolean = false): JsonObject =
+        sub.toApiJson({ prices[it]?.toApiJson() }, basil)
 
-    fun invoiceJson(invoice: Invoice): JsonObject =
-        invoice.toApiJson { prices[it]?.toApiJson() }
+    /** An invoice as the API answers it; [includePayments] is basil's `expand[]=payments`. */
+    fun invoiceJson(invoice: Invoice, basil: Boolean = false, includePayments: Boolean = false): JsonObject =
+        invoice.toApiJson({ prices[it]?.toApiJson() }, basil, includePayments)
+
+    /** Every InvoicePayment, oldest invoice first. */
+    fun invoicePayments(): Sequence<InvoicePayment> = invoices.values.asSequence().flatMap { it.payments.asSequence() }
 
     fun refundsForCharge(chargeId: String): List<Refund> =
         refunds.values.filter { it.charge == chargeId }.sortedByDescending { it.created }
@@ -152,17 +158,17 @@ class DataStore(
     fun chargeJson(charge: Charge): JsonObject =
         charge.toApiJson(refundsForCharge(charge.id).map { it.toApiJson() })
 
-    /** Resolve any id to its API JSON — used to satisfy `expand[]`. */
-    fun resolveJson(id: String): JsonObject? = when {
+    /** Resolve any id to its API JSON — used to satisfy `expand[]` ([basil]: the request's version). */
+    fun resolveJson(id: String, basil: Boolean = false): JsonObject? = when {
         id.startsWith("cus_") -> customers[id]?.toApiJson()
         id.startsWith("pm_") -> paymentMethods[id]?.toApiJson()
-        id.startsWith("pi_") -> paymentIntents[id]?.toApiJson()
+        id.startsWith("pi_") -> paymentIntents[id]?.toApiJson(basil)
         id.startsWith("ch_") -> charges[id]?.let { chargeJson(it) }
         id.startsWith("re_") -> refunds[id]?.toApiJson()
         id.startsWith("prod_") -> products[id]?.toApiJson()
         id.startsWith("price_") -> prices[id]?.toApiJson()
-        id.startsWith("sub_") -> subscriptions[id]?.let { subscriptionJson(it) }
-        id.startsWith("in_") -> invoices[id]?.let { invoiceJson(it) }
+        id.startsWith("sub_") -> subscriptions[id]?.let { subscriptionJson(it, basil) }
+        id.startsWith("in_") -> invoices[id]?.let { invoiceJson(it, basil) }
         id.startsWith("cs_") -> checkoutSessions[id]?.toApiJson()
         id.startsWith("bps_") -> portalSessions[id]?.toApiJson()
         id.startsWith("evt_") -> events[id]?.toApiJson()

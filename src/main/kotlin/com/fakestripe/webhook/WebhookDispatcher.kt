@@ -21,9 +21,20 @@ import org.slf4j.LoggerFactory
  * [url] is the endpoint configured from the environment at start-up; the world's configuration
  * holds the live endpoint. The secret is never persisted or echoed.
  */
-class WebhookDispatcher(url: String?, secret: String) {
+class WebhookDispatcher(url: String?, secret: String, signWithWallClock: Boolean = false) {
     @Volatile var url: String? = url
     @Volatile var secret: String = secret
+
+    /**
+     * Sign `t=` with the host's wall clock instead of the simulated time of the attempt
+     * (`FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK`). For receivers that check the timestamp against their
+     * own clock (Stripe's libraries allow 300 s) while the simulated clock has been moved.
+     */
+    @Volatile var signWithWallClock: Boolean = signWithWallClock
+
+    /** The `t=` of an attempt made at simulated time [attemptSeconds]. */
+    fun signatureTimestamp(attemptSeconds: Long): Long =
+        if (signWithWallClock) Math.floorDiv(System.currentTimeMillis(), 1000L) else attemptSeconds
 
     private val log = LoggerFactory.getLogger(WebhookDispatcher::class.java)
 
@@ -41,7 +52,10 @@ class WebhookDispatcher(url: String?, secret: String) {
     fun signatureHeader(timestampSeconds: Long, payload: String): String =
         "t=$timestampSeconds,v1=${sign("$timestampSeconds.$payload")}"
 
-    /** One delivery attempt. Any answer outside 2xx — redirects included — is a failure, as at Stripe. */
+    /**
+     * One delivery attempt at simulated time [timestampSeconds]. Any answer outside 2xx — redirects
+     * included — is a failure, as at Stripe.
+     */
     fun attempt(target: String?, payload: String, timestampSeconds: Long): AttemptResult {
         if (target == null) return AttemptResult(null, "no_endpoint_configured")
         val safe = SafeTarget.parse(target)
@@ -59,7 +73,7 @@ class WebhookDispatcher(url: String?, secret: String) {
                 // (e.g. a cloud metadata endpoint) via a 3xx.
                 instanceFollowRedirects = false
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setRequestProperty("Stripe-Signature", signatureHeader(timestampSeconds, payload))
+                setRequestProperty("Stripe-Signature", signatureHeader(signatureTimestamp(timestampSeconds), payload))
                 setRequestProperty("User-Agent", BuildInfo.PRODUCT)
             }
             conn.outputStream.use { it.write(payload.toByteArray()) }

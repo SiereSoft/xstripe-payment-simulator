@@ -22,6 +22,7 @@ data class Price(
     val recurringInterval: String? = null, // day | week | month | year
     val recurringIntervalCount: Int = 1,
     val metadata: MutableMap<String, String> = LinkedHashMap(),
+    val taxBehavior: String = "unspecified",
 ) {
     val type: String get() = if (recurringInterval != null) "recurring" else "one_time"
 
@@ -50,7 +51,7 @@ data class Price(
         put("created", created)
         put("livemode", false)
         put("nickname", nickname)
-        put("tax_behavior", "unspecified")
+        put("tax_behavior", taxBehavior)
         put("tiers_mode", JsonNull)
         put("lookup_key", JsonNull)
         putMetadata(metadata)

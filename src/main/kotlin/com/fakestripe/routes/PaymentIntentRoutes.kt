@@ -15,7 +15,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
         val params = call.formParams()
         val json = sim.write { store ->
             val pi = PaymentIntentMachine.create(store, params)
-            store.expand(pi.toApiJson(), params)
+            store.expand(pi.toApiJson(params.basil), params)
         }
         call.respondStripe(json)
     }
@@ -24,7 +24,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
     get("/v1/payment_intents/{id}") {
         val id = call.parameters["id"]!!
         val params = call.queryParams()
-        val json = sim.read { store -> store.expand(store.requirePaymentIntent(id).toApiJson(), params) }
+        val json = sim.read { store -> store.expand(store.requirePaymentIntent(id).toApiJson(params.basil), params) }
         call.respondStripe(json)
     }
 
@@ -44,7 +44,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
                 }
             }
             params.subMap("metadata").forEach { (k, v) -> if (v.isEmpty()) pi.metadata.remove(k) else pi.metadata[k] = v }
-            store.expand(pi.toApiJson(), params)
+            store.expand(pi.toApiJson(params.basil), params)
         }
         call.respondStripe(json)
     }
@@ -56,7 +56,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
         val json = sim.write { store ->
             val pi = store.requirePaymentIntent(id)
             PaymentIntentMachine.confirm(store, pi, params.opt("payment_method"), params)
-            store.expand(pi.toApiJson(), params)
+            store.expand(pi.toApiJson(params.basil), params)
         }
         call.respondStripe(json)
     }
@@ -68,7 +68,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
         val json = sim.write { store ->
             val pi = store.requirePaymentIntent(id)
             PaymentIntentMachine.capture(store, pi, params)
-            store.expand(pi.toApiJson(), params)
+            store.expand(pi.toApiJson(params.basil), params)
         }
         call.respondStripe(json)
     }
@@ -80,7 +80,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
         val json = sim.write { store ->
             val pi = store.requirePaymentIntent(id)
             PaymentIntentMachine.cancel(store, pi, params)
-            store.expand(pi.toApiJson(), params)
+            store.expand(pi.toApiJson(params.basil), params)
         }
         call.respondStripe(json)
     }
@@ -91,7 +91,7 @@ fun Route.paymentIntentRoutes(sim: Simulator) {
         val json = sim.read { store ->
             val customer = params.opt("customer")
             val all = store.paymentIntents.values.filter { customer == null || it.customer == customer }
-            store.paginated(all, "/v1/payment_intents", params, { it.id }, { it.created }, { it.toApiJson() })
+            store.paginated(all, "/v1/payment_intents", params, { it.id }, { it.created }, { it.toApiJson(params.basil) })
         }
         call.respondStripe(json)
     }

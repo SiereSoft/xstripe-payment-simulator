@@ -72,6 +72,11 @@ object Operations {
         Route("POST", "/v1/invoices/*/pay", "invoice.pay"),
         Route("POST", "/v1/invoices/*/void", "invoice.void"),
 
+        Route("GET", "/v1/invoice_payments", "invoice_payment.list"),
+        Route("GET", "/v1/invoice_payments/*", "invoice_payment.retrieve"),
+
+        Route("GET", "/v1/account", "account.retrieve"),
+
         Route("POST", "/v1/checkout/sessions", "checkout.session.create"),
         Route("GET", "/v1/checkout/sessions", "checkout.session.list"),
         Route("GET", "/v1/checkout/sessions/*", "checkout.session.retrieve"),

@@ -98,6 +98,13 @@ fun Route.adminRoutes(sim: Simulator) {
             }
             sim.setWebhookDelivery(mode)
         }
+        // Like the signing secret, a process setting (FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK), not part of the world.
+        input.string("webhook_signature_clock")?.let { clock ->
+            if (clock != SIGNATURE_CLOCK_WALL && clock != SIGNATURE_CLOCK_SIMULATED) {
+                throw ControlException.invalid("`webhook_signature_clock` must be `simulated` or `wall`.", "webhook_signature_clock")
+            }
+            sim.webhooks.signWithWallClock = clock == SIGNATURE_CLOCK_WALL
+        }
         call.respondStripe(configJson(sim))
     }
 
@@ -319,8 +326,13 @@ private fun configJson(sim: Simulator) = sim.read { store ->
         put("webhook_url", store.config.webhookUrl)
         put("webhook_secret_configured", sim.webhooks.secret.isNotBlank())
         put("clock_mode", store.clock.mode.wireValue)
+        put("webhook_signature_clock", if (sim.webhooks.signWithWallClock) SIGNATURE_CLOCK_WALL else SIGNATURE_CLOCK_SIMULATED)
+        put("account_id", sim.accountId)
     }
 }
+
+private const val SIGNATURE_CLOCK_WALL = "wall"
+private const val SIGNATURE_CLOCK_SIMULATED = "simulated"
 
 /**
  * A controller request's input: a JSON object body (the protocol), a form body or the query

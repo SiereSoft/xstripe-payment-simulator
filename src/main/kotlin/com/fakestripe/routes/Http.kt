@@ -1,5 +1,6 @@
 package com.fakestripe.routes
 
+import com.fakestripe.error.StripeException
 import com.fakestripe.model.Expand
 import com.fakestripe.model.StripeList
 import com.fakestripe.store.DataStore
@@ -41,12 +42,17 @@ suspend fun ApplicationCall.respondStripe(element: JsonElement, status: HttpStat
 /** Parse a form-encoded POST body into [StripeParams] (tolerating an empty body). */
 suspend fun ApplicationCall.formParams(): StripeParams {
     // If the idempotency filter already consumed the body, parse the cached copy.
-    attributes.getOrNull(CachedBodyKey)?.let { return StripeParams.fromBody(it) }
-    return StripeParams.from(runCatching { receiveParameters() }.getOrDefault(Parameters.Empty))
+    val version = request.header(STRIPE_VERSION_HEADER)
+    attributes.getOrNull(CachedBodyKey)?.let { return StripeParams.fromBody(it, version) }
+    return StripeParams.from(runCatching { receiveParameters() }.getOrDefault(Parameters.Empty), version)
 }
 
 /** Parse query-string params (for GET list/retrieve). */
-fun ApplicationCall.queryParams(): StripeParams = StripeParams.from(request.queryParameters)
+fun ApplicationCall.queryParams(): StripeParams =
+    StripeParams.from(request.queryParameters, request.header(STRIPE_VERSION_HEADER))
+
+/** The header a client names its Stripe API version with (and the version a response is in). */
+const val STRIPE_VERSION_HEADER = "Stripe-Version"
 
 /**
  * Serve one of the hosted browser pages (checkout / customer portal).
@@ -91,11 +97,12 @@ fun ApplicationCall.publicBaseUrl(): String {
 
 /** Apply `expand[]` to a single object. */
 fun DataStore.expand(json: JsonObject, params: StripeParams): JsonObject =
-    Expand.apply(json, params.expand, ::resolveJson)
+    Expand.apply(json, params.expand) { resolveJson(it, params.basil) }
 
 /**
  * Build a Stripe list response: newest-first, cursor pagination via
- * `starting_after` / `ending_before`, `limit` clamped to 1..100 (default 10).
+ * `starting_after` / `ending_before`, `limit` clamped to 1..100 (default 10), and Stripe's
+ * `created` filter (`created=<ts>` or `created[gt|gte|lt|lte]=<ts>`).
  */
 fun <T> DataStore.paginated(
     all: Collection<T>,
@@ -105,7 +112,9 @@ fun <T> DataStore.paginated(
     created: (T) -> Long,
     toJson: (T) -> JsonObject,
 ): JsonObject {
-    val sorted = all.sortedWith(compareByDescending<T> { created(it) }.thenByDescending { id(it) })
+    val window0 = createdFilter(params)
+    val sorted = all.filter { window0(created(it)) }
+        .sortedWith(compareByDescending<T> { created(it) }.thenByDescending { id(it) })
     val limit = (params.long("limit")?.toInt() ?: 10).coerceIn(1, 100)
     val startingAfter = params.opt("starting_after")
     val endingBefore = params.opt("ending_before")
@@ -122,6 +131,24 @@ fun <T> DataStore.paginated(
         else -> sorted
     }
     val page = window.take(limit)
-    val data = page.map { Expand.apply(toJson(it), params.expand, ::resolveJson) }
+    val data = page.map { Expand.apply(toJson(it), params.expand) { ref -> resolveJson(ref, params.basil) } }
     return StripeList.of(url, data, window.size > limit)
+}
+
+/** Stripe's `created` range filter on list endpoints; an unparsable bound is a 400. */
+private fun createdFilter(params: StripeParams): (Long) -> Boolean {
+    val exact = params.long("created")
+    val bounds = params.subMap("created").mapValues { (op, raw) ->
+        raw.toLongOrNull() ?: throw StripeException.invalidRequest(
+            "Invalid integer: $raw", param = "created[$op]", code = "parameter_invalid_integer",
+        )
+    }
+    bounds.keys.firstOrNull { it !in setOf("gt", "gte", "lt", "lte") }?.let {
+        throw StripeException.invalidRequest("Received unknown parameter: created[$it]", param = "created[$it]")
+    }
+    return { at ->
+        (exact == null || at == exact) &&
+            bounds["gt"].let { it == null || at > it } && bounds["gte"].let { it == null || at >= it } &&
+            bounds["lt"].let { it == null || at < it } && bounds["lte"].let { it == null || at <= it }
+    }
 }

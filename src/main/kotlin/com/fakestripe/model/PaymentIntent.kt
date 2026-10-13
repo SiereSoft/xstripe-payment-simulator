@@ -55,7 +55,8 @@ data class PaymentIntent(
         const val CANCELED = "canceled"
     }
 
-    fun toApiJson(): JsonObject = buildJsonObject {
+    /** [basil]: 2025-03-31.basil and later drop the PaymentIntent's `invoice` field. */
+    fun toApiJson(basil: Boolean = false): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "payment_intent")
         put("amount", amount)
@@ -83,7 +84,7 @@ data class PaymentIntent(
         putObjectOrNull("last_payment_error", lastPaymentError)
         put("application", JsonNull)
         put("automatic_payment_methods", JsonNull)
-        put("invoice", JsonNull)
+        if (!basil) put("invoice", JsonNull)
         put("on_behalf_of", JsonNull)
         put("review", JsonNull)
         put("shipping", JsonNull)

@@ -6,6 +6,8 @@ import com.fakestripe.model.CheckoutLine
 import com.fakestripe.model.CheckoutSession
 import com.fakestripe.model.Customer
 import com.fakestripe.model.PaymentMethod
+import com.fakestripe.model.Price
+import com.fakestripe.model.Product
 import com.fakestripe.statemachine.PaymentIntentMachine
 import com.fakestripe.store.DataStore
 import com.fakestripe.util.RedirectUrl
@@ -51,6 +53,27 @@ object CheckoutOps {
 
     // --- create -------------------------------------------------------------
 
+    /** One `line_items[n]`: an existing `price`, or `price_data` to create one inline. */
+    private class LineSpec(
+        val index: Int,
+        val priceId: String?,
+        val inline: InlinePrice?,
+        val quantity: Long,
+        val currency: String,
+        val unitAmount: Long,
+        val interval: String?,
+        val intervalCount: Int,
+    )
+
+    /** `line_items[n][price_data]`: becomes a Price (and, with `product_data`, a Product) at Stripe. */
+    private class InlinePrice(
+        val productId: String?,
+        val productName: String?,
+        val productDescription: String?,
+        val productMetadata: Map<String, String>,
+        val taxBehavior: String?,
+    )
+
     fun createSession(store: DataStore, params: StripeParams, baseUrl: String): CheckoutSession {
         val mode = params.opt("mode") ?: "payment"
         if (mode != "payment" && mode != "subscription") {
@@ -63,34 +86,24 @@ object CheckoutOps {
             param = "success_url",
         )
 
-        val itemsData = params.indexedSubMaps("line_items")
-        if (itemsData.isEmpty()) throw StripeException.missingParam("line_items[0][price]")
+        val indices = params.indices("line_items")
+        if (indices.isEmpty()) throw StripeException.missingParam("line_items[0][price]")
+        val specs = indices.map { i -> lineSpec(store, params, mode, i) }
 
-        val lines = itemsData.mapIndexed { i, item ->
-            val priceId = item["price"] ?: throw StripeException.invalidRequest(
-                "Only existing prices are simulated; pass `line_items[$i][price]`.",
-                param = "line_items[$i][price]",
-            )
-            val price = store.requirePrice(priceId)
-            val recurring = price.recurringInterval != null
-            if (mode == "subscription" && !recurring) {
-                throw StripeException.invalidRequest(
-                    "You specified `subscription` mode but passed a one-time price.",
-                    param = "line_items[$i][price]",
-                )
-            }
-            if (mode == "payment" && recurring) {
-                throw StripeException.invalidRequest(
-                    "You specified `payment` mode but passed a recurring price.",
-                    param = "line_items[$i][price]",
-                )
-            }
-            CheckoutLine(priceId, BillingOps.quantity(item["quantity"], "line_items[$i][quantity]", min = 1) ?: 1L)
-        }
-        val prices = lines.map { store.requirePrice(it.priceId) }
-        if (mode == "subscription") BillingOps.requireCompatiblePrices(prices, "line_items")
-        if (prices.any { it.currency != prices.first().currency }) {
+        if (specs.any { it.currency != specs.first().currency }) {
             throw StripeException.invalidRequest("All line items must use the same currency.", param = "line_items")
+        }
+        if (mode == "subscription") {
+            val existing = specs.mapNotNull { it.priceId }.map { store.requirePrice(it) }
+            if (existing.isNotEmpty()) BillingOps.requireCompatiblePrices(existing, "line_items")
+            specs.forEach { spec ->
+                if (spec.interval != specs.first().interval || spec.intervalCount != specs.first().intervalCount) {
+                    throw StripeException.invalidRequest(
+                        "All prices on a subscription must have the same `recurring.interval` and `recurring.interval_count`.",
+                        param = "line_items[${spec.index}][price]",
+                    )
+                }
+            }
         }
 
         val subscriptionData = params.subMap("subscription_data")
@@ -99,6 +112,27 @@ object CheckoutOps {
             throw StripeException.invalidRequest(
                 "You can not pass `subscription_data` in `$mode` mode.",
                 param = "subscription_data",
+            )
+        }
+        val paymentIntentData = params.subMap("payment_intent_data")
+        val paymentIntentMetadata = params.subMap("payment_intent_data[metadata]")
+        if (mode != "payment" && (paymentIntentData.isNotEmpty() || paymentIntentMetadata.isNotEmpty())) {
+            throw StripeException.invalidRequest(
+                "You can not pass `payment_intent_data` in `$mode` mode.",
+                param = "payment_intent_data",
+            )
+        }
+        val paymentMethodTypes = params.list("payment_method_types").ifEmpty { listOf("card") }
+        paymentMethodTypes.firstOrNull { it != "card" }?.let {
+            throw StripeException.invalidRequest(
+                "The payment method type `$it` is not simulated; only `card` is.",
+                param = "payment_method_types",
+            )
+        }
+        if (params.bool("automatic_tax[enabled]") == true) {
+            throw StripeException.invalidRequest(
+                "Automatic tax is not simulated; pass `automatic_tax[enabled]=false`.",
+                param = "automatic_tax[enabled]",
             )
         }
         val trialDays = subscriptionData["trial_period_days"]
@@ -119,11 +153,16 @@ object CheckoutOps {
         )
 
         val customerId = params.opt("customer")?.also { store.requireCustomer(it) }
-        val firstPrice = prices.first()
+        val currency = params.opt("currency")?.lowercase() ?: specs.first().currency
         val hasTrial = trialEnd != null
         // With a trial nothing is due today, so the session totals are zero (Stripe's behaviour).
-        val total = if (hasTrial) 0L else lines.sumOf { (store.prices[it.priceId]?.unitAmount ?: 0) * it.quantity }
+        val due = specs.sumOf { it.unitAmount * it.quantity }
+        if (!hasTrial) Amounts.requireChargeable(due, currency, allowZero = mode == "subscription", param = "line_items")
+        val total = if (hasTrial) 0L else due
+
+        // Everything is valid: only now create the inline products and prices.
         val now = store.now()
+        val lines = specs.map { spec -> CheckoutLine(spec.priceId ?: createInlinePrice(store, spec, now), spec.quantity) }
         val id = store.newId("cs")
 
         val session = CheckoutSession(
@@ -134,7 +173,7 @@ object CheckoutOps {
             successUrl = successUrl,
             cancelUrl = RedirectUrl.validateOptional(params.opt("cancel_url"), param = "cancel_url"),
             url = "${baseUrl.trimEnd('/')}/checkout/$id",
-            currency = params.opt("currency")?.lowercase() ?: firstPrice.currency,
+            currency = currency,
             amountTotal = total,
             expiresAt = now + SESSION_TTL,
             clientReferenceId = params.opt("client_reference_id"),
@@ -143,10 +182,164 @@ object CheckoutOps {
             subscriptionMetadata = LinkedHashMap(subscriptionMetadata),
             trialPeriodDays = trialDays?.toInt(),
             trialEnd = if (trialEndParam != null) trialEnd else null,
+            paymentIntentMetadata = LinkedHashMap(paymentIntentMetadata),
+            paymentIntentDescription = paymentIntentData["description"],
+            paymentMethodTypes = paymentMethodTypes,
+            allowPromotionCodes = params.bool("allow_promotion_codes"),
         )
         session.metadata.putAll(params.subMap("metadata"))
         store.checkoutSessions[id] = session
         return session
+    }
+
+    /** Validate `line_items[i]` without creating anything. */
+    private fun lineSpec(store: DataStore, params: StripeParams, mode: String, i: Int): LineSpec {
+        val item = "line_items[$i]"
+        val priceId = params.opt("$item[price]")
+        val priceData = params.subMap("$item[price_data]")
+        val productData = params.subMap("$item[price_data][product_data]")
+        val productMetadata = params.subMap("$item[price_data][product_data][metadata]")
+        val recurring = params.subMap("$item[price_data][recurring]")
+        val hasPriceData = priceData.isNotEmpty() || productData.isNotEmpty() || recurring.isNotEmpty()
+        val quantity = BillingOps.quantity(params.opt("$item[quantity]"), "$item[quantity]", min = 1) ?: 1L
+        if (priceId != null && hasPriceData) {
+            throw StripeException.invalidRequest(
+                "You may only specify one of these parameters: price, price_data.",
+                param = "$item[price]",
+            )
+        }
+        if (priceId == null && !hasPriceData) {
+            throw StripeException.invalidRequest(
+                "You must specify either `price` or `price_data` in `$item`.",
+                param = "$item[price]",
+            )
+        }
+        if (priceId != null) {
+            val price = store.requirePrice(priceId)
+            checkRecurringForMode(mode, price.recurringInterval != null, "$item[price]")
+            return LineSpec(
+                i, priceId, null, quantity, price.currency, price.unitAmount ?: 0L,
+                price.recurringInterval, price.recurringIntervalCount,
+            )
+        }
+
+        val currency = priceData["currency"]?.lowercase() ?: throw StripeException.missingParam("$item[price_data][currency]")
+        Amounts.requireSupportedCurrency(currency, "$item[price_data][currency]")
+        val unitAmount = when {
+            priceData["unit_amount"] != null && priceData["unit_amount_decimal"] != null -> throw StripeException.invalidRequest(
+                "You may only specify one of these parameters: unit_amount, unit_amount_decimal.",
+                param = "$item[price_data][unit_amount]",
+            )
+            priceData["unit_amount"] != null -> priceData["unit_amount"]!!.toLongOrNull()
+                ?: throw StripeException.invalidRequest(
+                    "Invalid integer: ${priceData["unit_amount"]}",
+                    param = "$item[price_data][unit_amount]", code = "parameter_invalid_integer",
+                )
+            priceData["unit_amount_decimal"] != null -> priceData["unit_amount_decimal"]!!.toBigDecimalOrNull()
+                ?.takeIf { it.stripTrailingZeros().scale() <= 0 }?.toLong()
+                ?: throw StripeException.invalidRequest(
+                    "Only whole-number `unit_amount_decimal` values are simulated.",
+                    param = "$item[price_data][unit_amount_decimal]",
+                )
+            else -> throw StripeException.missingParam("$item[price_data][unit_amount]")
+        }
+        if (unitAmount < 0) {
+            throw StripeException.invalidRequest(
+                "This value must be greater than or equal to 0.", param = "$item[price_data][unit_amount]",
+            )
+        }
+        Amounts.requireNotTooLarge(unitAmount, currency, "$item[price_data][unit_amount]")
+
+        val productId = priceData["product"]?.also { store.requireProduct(it) }
+        if (productId != null && (productData.isNotEmpty() || productMetadata.isNotEmpty())) {
+            throw StripeException.invalidRequest(
+                "You may only specify one of these parameters: product, product_data.",
+                param = "$item[price_data][product]",
+            )
+        }
+        if (productId == null && productData["name"].isNullOrBlank()) {
+            throw StripeException.missingParam("$item[price_data][product_data][name]")
+        }
+
+        val interval = recurring["interval"]
+        if (recurring.isNotEmpty() && interval == null) throw StripeException.missingParam("$item[price_data][recurring][interval]")
+        if (interval != null && interval !in setOf("day", "week", "month", "year")) {
+            throw StripeException.invalidRequest(
+                "Invalid $item[price_data][recurring][interval]: must be one of day, month, week, or year",
+                param = "$item[price_data][recurring][interval]",
+            )
+        }
+        val intervalCount = recurring["interval_count"]?.let { raw ->
+            raw.toIntOrNull()?.takeIf { it >= 1 } ?: throw StripeException.invalidRequest(
+                "Invalid $item[price_data][recurring][interval_count]: must be a positive integer.",
+                param = "$item[price_data][recurring][interval_count]",
+            )
+        } ?: 1
+        if (interval != null && intervalCount > maxIntervalCount(interval)) {
+            throw StripeException.invalidRequest(
+                "The maximum billing interval is one year (1 year, 12 months, 52 weeks or 365 days).",
+                param = "$item[price_data][recurring][interval_count]",
+            )
+        }
+        checkRecurringForMode(mode, interval != null, "$item[price_data]")
+        return LineSpec(
+            i, null,
+            InlinePrice(productId, productData["name"], productData["description"], productMetadata, priceData["tax_behavior"]),
+            quantity, currency, unitAmount, interval, intervalCount,
+        )
+    }
+
+    private fun maxIntervalCount(interval: String): Int = when (interval) {
+        "day" -> 365
+        "week" -> 52
+        "month" -> 12
+        else -> 1
+    }
+
+    private fun checkRecurringForMode(mode: String, recurring: Boolean, param: String) {
+        if (mode == "subscription" && !recurring) {
+            throw StripeException.invalidRequest(
+                "You specified `subscription` mode but passed a one-time price.",
+                param = param,
+            )
+        }
+        if (mode == "payment" && recurring) {
+            throw StripeException.invalidRequest(
+                "You specified `payment` mode but passed a recurring price.",
+                param = param,
+            )
+        }
+    }
+
+    /**
+     * Stripe turns `price_data` into a Price of its own (and `product_data` into a Product). An
+     * inline price is not reusable, so it is created inactive.
+     */
+    private fun createInlinePrice(store: DataStore, spec: LineSpec, now: Long): String {
+        val inline = spec.inline!!
+        val productId = inline.productId ?: Product(
+            id = store.newId("prod"),
+            created = now,
+            updated = now,
+            name = inline.productName!!,
+            description = inline.productDescription,
+        ).also {
+            it.metadata.putAll(inline.productMetadata)
+            store.products[it.id] = it
+        }.id
+        val price = Price(
+            id = store.newId("price"),
+            created = now,
+            product = productId,
+            currency = spec.currency,
+            unitAmount = spec.unitAmount,
+            active = false,
+            recurringInterval = spec.interval,
+            recurringIntervalCount = spec.intervalCount,
+            taxBehavior = inline.taxBehavior ?: "unspecified",
+        )
+        store.prices[price.id] = price
+        return price.id
     }
 
     /**
@@ -244,8 +437,8 @@ object CheckoutOps {
                             "customer" to customer.id,
                             "payment_method" to pm.id,
                             "confirm" to "true",
-                            "description" to "Checkout session ${session.id}",
-                        ),
+                            "description" to (session.paymentIntentDescription ?: "Checkout session ${session.id}"),
+                        ) + session.paymentIntentMetadata.map { (k, v) -> "metadata[$k]" to v },
                     ),
                 )
                 session.paymentIntent = pi.id

@@ -4,6 +4,7 @@ import com.fakestripe.error.StripeException
 import com.fakestripe.hosted.date
 import com.fakestripe.model.Invoice
 import com.fakestripe.model.InvoiceLine
+import com.fakestripe.model.InvoicePayment
 import com.fakestripe.model.Price
 import com.fakestripe.model.Subscription
 import com.fakestripe.model.SubscriptionItem
@@ -11,6 +12,7 @@ import com.fakestripe.statemachine.PaymentIntentMachine
 import com.fakestripe.store.DataStore
 import com.fakestripe.util.StripeParams
 import kotlin.math.roundToLong
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Subscription + invoice business logic: creating a subscription bills a first invoice (a $0 one
@@ -489,11 +491,40 @@ object BillingOps {
             store, sub.customer, sub.id, sub.currency, lines, "subscription_cycle",
             sub.currentPeriodStart, sub.currentPeriodEnd,
         )
-        val paid = payInvoice(store, invoice, sub.customer, sub.defaultPaymentMethod)
+        val paid = payInvoice(store, invoice, sub.customer, forcedDeclineCard(store, sub) ?: sub.defaultPaymentMethod)
         sub.latestInvoice = invoice.id
         // Dunning: a failed renewal is past_due, not cancelled — Stripe retries for days.
         sub.status = if (paid) "active" else "past_due"
         store.recordEvent("customer.subscription.updated", store.subscriptionJson(sub))
+    }
+
+    /** The card a renewal is charged to instead of the default one, see [failNextRenewals]. */
+    const val DEFAULT_FAILING_CARD = "4000000000000002"
+
+    /**
+     * Controller-forced dunning (`POST /v1/admin/subscriptions/{id}/fail_next_renewal`): make the
+     * next [count] renewals of [sub] charge a declining test card. 0 clears it.
+     */
+    fun failNextRenewals(sub: Subscription, count: Int, card: String?) {
+        sub.failNextRenewals = count
+        sub.failRenewalCard = if (count > 0) card else null
+    }
+
+    /** A one-off payment method with the declining card when a failure was forced for this renewal. */
+    private fun forcedDeclineCard(store: DataStore, sub: Subscription): String? {
+        if (sub.failNextRenewals <= 0) return null
+        sub.failNextRenewals -= 1
+        val number = sub.failRenewalCard ?: DEFAULT_FAILING_CARD
+        if (sub.failNextRenewals == 0) sub.failRenewalCard = null
+        val pm = com.fakestripe.model.PaymentMethod(
+            id = store.newId("pm"),
+            created = store.now(),
+            number = number,
+            expMonth = 12,
+            expYear = 2034,
+        )
+        store.paymentMethods[pm.id] = pm
+        return pm.id
     }
 
     // --- invoices -----------------------------------------------------------
@@ -505,8 +536,11 @@ object BillingOps {
      * use to warn a customer without cutting them off on the first decline.
      */
     fun payInvoice(store: DataStore, invoice: Invoice, customerId: String, pmId: String?): Boolean {
+        val now = store.now()
+        if (invoice.finalizedAt == null) invoice.finalizedAt = now
         if (invoice.total <= 0) {
             invoice.status = "paid"; invoice.paid = true; invoice.amountPaid = 0; invoice.amountRemaining = 0
+            invoice.paidAt = now
             store.recordEvent("invoice.paid", store.invoiceJson(invoice))
             return true
         }
@@ -514,7 +548,7 @@ object BillingOps {
             failInvoice(store, invoice)
             return false
         }
-        val pi = runCatching {
+        val pi = try {
             PaymentIntentMachine.create(
                 store,
                 StripeParams(
@@ -529,12 +563,19 @@ object BillingOps {
                     ),
                 ),
             )
-        }.getOrNull()
+        } catch (e: StripeException) {
+            // A decline still leaves its PaymentIntent behind; the error names it.
+            (e.paymentIntent?.get("id") as? JsonPrimitive)?.content?.let(store.paymentIntents::get)
+        } catch (e: Exception) {
+            null
+        }
+        pi?.let { recordInvoicePayment(store, invoice, it, now) }
 
         if (pi != null && pi.status == "succeeded") {
             invoice.status = "paid"; invoice.paid = true
             invoice.amountPaid = invoice.total; invoice.amountRemaining = 0
             invoice.paymentIntent = pi.id
+            invoice.paidAt = now
             store.recordEvent("invoice.paid", store.invoiceJson(invoice))
             invoice.subscription
                 ?.let(store.subscriptions::get)
@@ -553,6 +594,42 @@ object BillingOps {
         invoice.paymentIntent = pi?.id ?: invoice.paymentIntent
         failInvoice(store, invoice)
         return false
+    }
+
+    /**
+     * Basil's InvoicePayment: the invoice's default payment points at the PaymentIntent of the
+     * latest attempt and turns `paid` with it.
+     */
+    private fun recordInvoicePayment(store: DataStore, invoice: Invoice, pi: com.fakestripe.model.PaymentIntent, now: Long) {
+        val payment = invoice.payments.lastOrNull { it.isDefault && it.status == "open" }
+            ?: InvoicePayment(
+                id = store.newId("inpay"),
+                created = now,
+                invoice = invoice.id,
+                currency = invoice.currency,
+                amountRequested = invoice.total,
+            ).also { invoice.payments += it }
+        payment.paymentIntent = pi.id
+        if (pi.status == "succeeded") {
+            payment.status = "paid"
+            payment.amountPaid = pi.amountReceived
+            payment.paidAt = now
+        }
+    }
+
+    /** `POST /v1/invoices/{id}/void`: a voided invoice asks for nothing and its open payments are canceled. */
+    fun voidInvoice(store: DataStore, invoice: Invoice) {
+        // 0.1.x behaviour, kept: any invoice can be voided (Stripe refuses paid ones).
+        val now = store.now()
+        invoice.status = "void"
+        invoice.paid = false
+        invoice.amountRemaining = 0
+        invoice.voidedAt = now
+        invoice.payments.filter { it.status == "open" }.forEach {
+            it.status = "canceled"
+            it.canceledAt = now
+        }
+        store.recordEvent("invoice.voided", store.invoiceJson(invoice))
     }
 
     private fun failInvoice(store: DataStore, invoice: Invoice) {
@@ -574,6 +651,7 @@ object BillingOps {
         periodEnd: Long,
     ): Invoice {
         val subtotal = lines.sumOf { it.amount }
+        val subscriptionMetadata = subId?.let { store.subscriptions[it]?.metadata?.toMap() }.orEmpty()
         val id = store.newId("in")
         val invoice = Invoice(
             id = id,
@@ -593,6 +671,7 @@ object BillingOps {
             billingReason = reason,
             periodStart = periodStart,
             periodEnd = periodEnd,
+            subscriptionMetadata = subscriptionMetadata,
         )
         store.invoices[id] = invoice
         return invoice

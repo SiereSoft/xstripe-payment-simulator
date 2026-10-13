@@ -16,10 +16,18 @@ data class SubscriptionItem(
     val subscription: String,
     val metadata: MutableMap<String, String> = LinkedHashMap(),
 ) {
-    fun toApiJson(priceJson: JsonObject?): JsonObject = buildJsonObject {
+    /**
+     * [period] is the item's current period, rendered only in basil and later versions (which
+     * moved `current_period_start` / `current_period_end` from the subscription onto its items).
+     */
+    fun toApiJson(priceJson: JsonObject?, period: Pair<Long, Long>? = null): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "subscription_item")
         put("created", created)
+        if (period != null) {
+            put("current_period_start", period.first)
+            put("current_period_end", period.second)
+        }
         put("price", priceJson ?: JsonNull)
         put("quantity", quantity)
         put("subscription", subscription)
@@ -57,8 +65,24 @@ data class Subscription(
     var trialWillEndSent: Boolean = false,
     var billingCycleAnchor: Long? = null,
     val pendingProrations: MutableList<InvoiceLine> = mutableListOf(),
+    /**
+     * Controller-forced dunning: the next this-many renewals are charged to a declining test card
+     * ([failRenewalCard]) instead of the default payment method. Not part of Stripe's object.
+     */
+    var failNextRenewals: Int = 0,
+    var failRenewalCard: String? = null,
 ) {
-    fun toApiJson(priceJsonFor: (String) -> JsonObject?): JsonObject = buildJsonObject {
+    /** Stripe sets `cancel_at` to the period end once `cancel_at_period_end` is requested. */
+    val cancelAt: Long? get() = if (cancelAtPeriodEnd) currentPeriodEnd else null
+
+    /** The current period as basil renders it on each item. */
+    val period: Pair<Long, Long> get() = currentPeriodStart to currentPeriodEnd
+
+    /**
+     * [basil]: answer in the 2025-03-31.basil (and later) shape — the current period lives on the
+     * items, not on the subscription.
+     */
+    fun toApiJson(priceJsonFor: (String) -> JsonObject?, basil: Boolean = false): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "subscription")
         put("customer", customer)
@@ -69,13 +93,16 @@ data class Subscription(
             put("has_more", false)
             put("total_count", items.size)
             put("url", "/v1/subscription_items?subscription=$id")
-            put("data", JsonArray(items.map { it.toApiJson(priceJsonFor(it.priceId)) }))
+            put("data", JsonArray(items.map { it.toApiJson(priceJsonFor(it.priceId), if (basil) period else null) }))
         })
-        put("current_period_start", currentPeriodStart)
-        put("current_period_end", currentPeriodEnd)
+        if (!basil) {
+            put("current_period_start", currentPeriodStart)
+            put("current_period_end", currentPeriodEnd)
+        }
         put("created", created)
         put("start_date", created)
         put("billing_cycle_anchor", billingCycleAnchor ?: created)
+        put("cancel_at", cancelAt)
         put("cancel_at_period_end", cancelAtPeriodEnd)
         put("canceled_at", canceledAt)
         put("ended_at", endedAt)

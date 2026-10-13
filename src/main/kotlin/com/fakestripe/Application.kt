@@ -13,12 +13,16 @@ import com.fakestripe.control.genericCode
 import com.fakestripe.error.StripeException
 import com.fakestripe.routes.CachedBodyKey
 import com.fakestripe.routes.IdempotencyRecorderKey
+import com.fakestripe.routes.STRIPE_VERSION_HEADER
+import com.fakestripe.routes.accountRoutes
 import com.fakestripe.routes.adminRoutes
 import com.fakestripe.routes.billingPortalRoutes
 import com.fakestripe.routes.chargeRoutes
+import com.fakestripe.routes.checkoutAdminRoutes
 import com.fakestripe.routes.checkoutRoutes
 import com.fakestripe.routes.customerRoutes
 import com.fakestripe.routes.eventRoutes
+import com.fakestripe.routes.invoicePaymentRoutes
 import com.fakestripe.routes.invoiceRoutes
 import com.fakestripe.routes.paymentIntentRoutes
 import com.fakestripe.routes.paymentMethodRoutes
@@ -33,6 +37,7 @@ import com.fakestripe.routes.subscriptionRoutes
 import com.fakestripe.routes.webhookAdminRoutes
 import com.fakestripe.store.ClockMode
 import com.fakestripe.store.Simulator
+import com.fakestripe.util.ApiVersion
 import com.fakestripe.webhook.WebhookDispatcher
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -145,12 +150,36 @@ internal fun simulatorFromEnvironment(environment: Map<String, String>): Simulat
     val seedText = environment["FAKE_STRIPE_SEED"]?.trim()?.takeIf { it.isNotEmpty() } ?: "1"
     val webhooks = WebhookDispatcher(
         url = environment["FAKE_STRIPE_WEBHOOK_URL"]?.takeIf { it.isNotBlank() },
-        secret = environment["FAKE_STRIPE_WEBHOOK_SECRET"] ?: "whsec_test",
+        secret = environment["FAKE_STRIPE_WEBHOOK_SECRET"]?.takeIf { it.isNotBlank() } ?: "whsec_test",
+        signWithWallClock = flag(environment, WALL_CLOCK_SIGNING_ENV),
     )
     val clockModeValue = environment["FAKE_STRIPE_CLOCK_MODE"] ?: ClockMode.FREE.wireValue
     val clockMode = ClockMode.parse(clockModeValue)
         ?: throw IllegalArgumentException("FAKE_STRIPE_CLOCK_MODE must be 'free' or 'manual'.")
-    return Simulator.boot(dataPath, seedValue(seedText), webhooks, clockMode, defaultSeedText = seedText)
+    return Simulator.boot(
+        dataPath, seedValue(seedText), webhooks, clockMode,
+        defaultSeedText = seedText, accountId = accountIdFrom(environment),
+    )
+}
+
+internal const val WALL_CLOCK_SIGNING_ENV = "FAKE_STRIPE_WEBHOOK_SIGN_WALL_CLOCK"
+internal const val ACCOUNT_ID_ENV = "FAKE_STRIPE_ACCOUNT_ID"
+
+/** `1`/`true`/`yes`/`on` or `0`/`false`/`no`/`off` (empty: off); anything else stops start-up. */
+internal fun flag(environment: Map<String, String>, name: String): Boolean =
+    when (environment[name]?.trim()?.lowercase()) {
+        null, "", "0", "false", "no", "off" -> false
+        "1", "true", "yes", "on" -> true
+        else -> throw IllegalArgumentException("$name must be 1 or 0.")
+    }
+
+/** The account `GET /v1/account` answers: `acct_` plus letters, digits or underscores. */
+internal fun accountIdFrom(environment: Map<String, String>): String {
+    val value = environment[ACCOUNT_ID_ENV]?.trim()?.takeIf { it.isNotEmpty() } ?: return Simulator.DEFAULT_ACCOUNT_ID
+    require(Regex("^acct_[A-Za-z0-9_]{1,123}$").matches(value)) {
+        "$ACCOUNT_ID_ENV must look like a Stripe account id: acct_ followed by letters, digits or underscores."
+    }
+    return value
 }
 
 /**
@@ -260,8 +289,12 @@ private fun Application.configureApplication(
         mdc("episode_id") { sim.episodeId }
     }
     install(DefaultHeaders) {
-        header("Stripe-Version", BuildInfo.STRIPE_API_VERSION)
         header("Server", BuildInfo.PRODUCT)
+    }
+    // Stripe answers in the version the request asked for (`Stripe-Version`), else the account default.
+    intercept(ApplicationCallPipeline.Setup) {
+        val requested = if (actorRoutes && !call.isControllerCall()) call.request.header(STRIPE_VERSION_HEADER) else null
+        call.response.headers.append(STRIPE_VERSION_HEADER, ApiVersion.effective(requested))
     }
     install(StatusPages) {
         exception<ControlException> { call, cause -> call.respondStripe(cause.toJson(), cause.status) }
@@ -337,6 +370,8 @@ private fun Application.configureApplication(
             subscriptionRoutes(sim)
             subscriptionItemRoutes(sim)
             invoiceRoutes(sim)
+            invoicePaymentRoutes(sim)
+            accountRoutes(sim)
             checkoutRoutes(sim)
             billingPortalRoutes(sim)
             eventRoutes(sim)
@@ -344,6 +379,7 @@ private fun Application.configureApplication(
         if (serveController) {
             adminRoutes(sim)
             subscriptionAdminRoutes(sim)
+            checkoutAdminRoutes(sim)
             webhookAdminRoutes(sim)
         }
         unknownUrlFallback(controllerOnly = controllerRoutes && !actorRoutes, controllerPrefix = serveController)

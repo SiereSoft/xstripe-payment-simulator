@@ -13,7 +13,13 @@ import io.ktor.http.Parameters
  * fake, we must decode the same shape. Ktor already URL-decodes into a [Parameters]
  * multimap keeping the literal bracketed keys; this class interprets them.
  */
-class StripeParams(private val entries: List<Pair<String, String>>) {
+class StripeParams(
+    private val entries: List<Pair<String, String>>,
+    /** The request's `Stripe-Version` header (null: the account default). */
+    val apiVersion: String? = null,
+) {
+    /** True when the caller asked for basil (2025-03-31) or a later API version. */
+    val basil: Boolean get() = ApiVersion.isBasil(apiVersion?.trim())
 
     fun has(key: String): Boolean = entries.any { it.first == key }
 
@@ -76,28 +82,37 @@ class StripeParams(private val entries: List<Pair<String, String>>) {
 
     val expand: Set<String> get() = list("expand").toSet()
 
+    /** The indices used under `key[<n>]…`, e.g. 0 and 1 for `line_items[0][price]`, `line_items[1][price_data][currency]`. */
+    fun indices(key: String): List<Int> {
+        val re = Regex("^${Regex.escape(key)}\\[(\\d+)\\]")
+        return entries.mapNotNull { re.find(it.first)?.groupValues?.get(1)?.toIntOrNull() }.distinct().sorted()
+    }
+
+    /** Every key starting with [prefix], e.g. to reject unsupported nested parameters. */
+    fun keysWithPrefix(prefix: String): List<String> = keys().filter { it.startsWith(prefix) }
+
     companion object {
-        fun from(parameters: Parameters): StripeParams {
+        fun from(parameters: Parameters, apiVersion: String? = null): StripeParams {
             val list = ArrayList<Pair<String, String>>()
             for (name in parameters.names()) {
                 for (value in parameters.getAll(name).orEmpty()) list.add(name to value)
             }
-            return StripeParams(list)
+            return StripeParams(list, apiVersion)
         }
 
         /**
          * Parse a raw urlencoded body string. Used when the body was read earlier
          * (e.g. to fingerprint an idempotent request) and can't be received again.
          */
-        fun fromBody(body: String): StripeParams {
-            if (body.isBlank()) return StripeParams(emptyList())
+        fun fromBody(body: String, apiVersion: String? = null): StripeParams {
+            if (body.isBlank()) return StripeParams(emptyList(), apiVersion)
             val list = body.split("&").mapNotNull { pair ->
                 if (pair.isEmpty()) return@mapNotNull null
                 val eq = pair.indexOf('=')
                 val (k, v) = if (eq < 0) pair to "" else pair.substring(0, eq) to pair.substring(eq + 1)
                 decode(k) to decode(v)
             }
-            return StripeParams(list)
+            return StripeParams(list, apiVersion)
         }
 
         private fun decode(s: String): String =

@@ -49,13 +49,24 @@ data class CheckoutSession(
     val trialEnd: Long? = null,
     /** A card waiting for the hosted 3-D Secure challenge (payment method id). */
     var pendingAuthentication: String? = null,
+    /** `payment_intent_data[metadata]` / `[description]`: copied onto the payment-mode PaymentIntent. */
+    val paymentIntentMetadata: Map<String, String> = emptyMap(),
+    val paymentIntentDescription: String? = null,
+    val paymentMethodTypes: List<String> = listOf("card"),
+    val allowPromotionCodes: Boolean? = null,
 ) {
     val hasTrial: Boolean get() = trialPeriodDays != null || trialEnd != null
 
     fun toApiJson(): JsonObject = buildJsonObject {
         put("id", id)
         put("object", "checkout.session")
+        put("allow_promotion_codes", allowPromotionCodes)
         put("amount_subtotal", amountTotal)
+        put("automatic_tax", buildJsonObject {
+            put("enabled", false)
+            put("liability", JsonNull)
+            put("status", JsonNull)
+        })
         put("amount_total", amountTotal)
         put("cancel_url", cancelUrl)
         put("client_reference_id", clientReferenceId)
@@ -77,7 +88,7 @@ data class CheckoutSession(
         put("locale", JsonNull)
         put("mode", mode)
         put("payment_intent", paymentIntent)
-        put("payment_method_types", JsonArray(listOf(JsonPrimitive("card"))))
+        put("payment_method_types", JsonArray(paymentMethodTypes.map { JsonPrimitive(it) }))
         put("payment_status", paymentStatus)
         put("status", status)
         put("subscription", subscription)

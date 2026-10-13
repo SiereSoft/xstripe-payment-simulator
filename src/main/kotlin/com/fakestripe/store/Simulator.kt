@@ -47,6 +47,8 @@ class Simulator(
     /** The configured seed a reset without one falls back to. */
     val defaultSeedText: String = store.seedText,
     journalSeqFloor: Long = 0,
+    /** The Stripe account the API keys belong to (`GET /v1/account`; `FAKE_STRIPE_ACCOUNT_ID`). */
+    val accountId: String = DEFAULT_ACCOUNT_ID,
 ) : AutoCloseable {
     @Volatile
     var store: DataStore = store
@@ -675,6 +677,9 @@ class Simulator(
     companion object {
         const val PUMP_TICK_MS = 1_000L
 
+        /** The simulated account id unless `FAKE_STRIPE_ACCOUNT_ID` names another. */
+        const val DEFAULT_ACCOUNT_ID = "acct_ssf_local"
+
         /**
          * Load the snapshot if present; otherwise build a fresh seeded world.
          * This is what gives "create a customer -> he's still there after restart".
@@ -686,6 +691,7 @@ class Simulator(
             defaultClockMode: ClockMode = ClockMode.FREE,
             wallTimeSeconds: () -> Long = SimulatorClock.SYSTEM_SECONDS,
             defaultSeedText: String = defaultSeed.toString(),
+            accountId: String = DEFAULT_ACCOUNT_ID,
         ): Simulator {
             val loaded = Snapshot.load(dataPath, wallTimeSeconds)
             val journalSeq = if (loaded != null) {
@@ -699,7 +705,7 @@ class Simulator(
                 wallTimeSeconds = wallTimeSeconds,
                 seedText = defaultSeedText,
             )
-            val sim = Simulator(store, dataPath, webhooks, wallTimeSeconds, defaultSeedText, journalSeq)
+            val sim = Simulator(store, dataPath, webhooks, wallTimeSeconds, defaultSeedText, journalSeq, accountId)
             if (loaded == null) sim.persist(store)
             return sim
         }
