@@ -68,7 +68,6 @@
     "customer": null,
     "description": null,
     "id": "<id>",
-    "invoice": null,
     "last_payment_error": null,
     "latest_charge": "<id>",
     "livemode": false,

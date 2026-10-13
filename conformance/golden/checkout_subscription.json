@@ -1,7 +1,13 @@
 {
   "retrieve": {
+    "allow_promotion_codes": null,
     "amount_subtotal": 0,
     "amount_total": 0,
+    "automatic_tax": {
+      "enabled": false,
+      "liability": null,
+      "status": null
+    },
     "cancel_url": "https://example.com/cancel",
     "client_reference_id": "store-1",
     "currency": "eur",
@@ -39,8 +45,14 @@
     }
   },
   "session": {
+    "allow_promotion_codes": null,
     "amount_subtotal": 0,
     "amount_total": 0,
+    "automatic_tax": {
+      "enabled": false,
+      "liability": null,
+      "status": null
+    },
     "cancel_url": "https://example.com/cancel",
     "client_reference_id": "store-1",
     "currency": "eur",
