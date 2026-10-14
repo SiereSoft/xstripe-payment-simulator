@@ -30,7 +30,7 @@ jobs:
             21
 
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v3
+        uses: gradle/actions/wrapper-validation@v6
 
       - name: Tests, control-protocol conformance and the 90 % line-coverage gate
         run: ./gradlew --no-daemon check koverXmlReport koverLog
