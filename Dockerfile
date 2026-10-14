@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/home/gradle/.gradle \
 
 # ---- Runtime stage ----
 # The running container needs NO internet: everything is baked in.
-FROM eclipse-temurin:11-jre@sha256:49328316354e3d19046a08cc4a9b4aa50a07c6636f6bd5d1e7f7e11fc2731fa3
+FROM eclipse-temurin:24-jre@sha256:8cb2387a28af84cf0db0948d9c67d4480192f4e567027a3963f145d218e8b4f2
 WORKDIR /app
 COPY --chown=10001:10001 --from=build /app/build/install/fake-stripe ./
 COPY --chown=10001:10001 --from=build /app/build/runtime-data/ /data/
