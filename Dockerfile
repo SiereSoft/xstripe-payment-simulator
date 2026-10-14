@@ -3,7 +3,7 @@
 # Network is only needed here (at image build time) to fetch dependencies.
 ARG SOURCE_DATE_EPOCH
 
-FROM gradle:8.7-jdk11@sha256:8942456a1b0a1d3ab52fc8ebb248f13a308aac6f40423d2e5537553a69c5c7f8 AS build
+FROM gradle:8.13-jdk11@sha256:a24382233b41e118017ff024190f308048d3b01561f6964e86e8c781eae31be3 AS build
 ARG SOURCE_DATE_EPOCH
 WORKDIR /app
 COPY settings.gradle.kts build.gradle.kts gradle.properties ./
