@@ -12,6 +12,7 @@ import com.fakestripe.model.Price
 import com.fakestripe.model.Product
 import com.fakestripe.model.Refund
 import com.fakestripe.model.Subscription
+import com.fakestripe.model.SubscriptionSchedule
 import com.fakestripe.control.ControlProtocol
 import com.fakestripe.webhook.WebhookDispatcher
 import java.security.MessageDigest
@@ -76,6 +77,7 @@ fun DataStore.toControlPlaneJson(): JsonObject = buildJsonObject {
     put("refunds", encodeCollection(refunds.values, Refund.serializer()))
     put("products", encodeCollection(products.values, Product.serializer()))
     put("prices", encodeCollection(prices.values, Price.serializer()))
+    put("subscription_schedules", encodeCollection(subscriptionSchedules.values, SubscriptionSchedule.serializer()))
     put("subscriptions", encodeCollection(subscriptions.values, Subscription.serializer()))
     put("invoices", encodeCollection(invoices.values, Invoice.serializer()))
     put(

@@ -33,6 +33,7 @@ import com.fakestripe.routes.respondStripe
 import com.fakestripe.routes.serviceRoutes
 import com.fakestripe.routes.subscriptionAdminRoutes
 import com.fakestripe.routes.subscriptionItemRoutes
+import com.fakestripe.routes.scheduleRoutes
 import com.fakestripe.routes.subscriptionRoutes
 import com.fakestripe.routes.webhookAdminRoutes
 import com.fakestripe.store.ClockMode
@@ -368,6 +369,7 @@ private fun Application.configureApplication(
             productRoutes(sim)
             priceRoutes(sim)
             subscriptionRoutes(sim)
+            scheduleRoutes(sim)
             subscriptionItemRoutes(sim)
             invoiceRoutes(sim)
             invoicePaymentRoutes(sim)

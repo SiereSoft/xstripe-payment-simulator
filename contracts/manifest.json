@@ -27,6 +27,8 @@
     "GET /v1/refunds/{refund}": "182f22334b8fccd079efd89a78bc76080fb0df57dbd55a1e3708648dabdea477",
     "GET /v1/subscription_items": "35f17587f8f9d6c6a475cbb035d51bc653f1bdce9eb1726f6289d4b813a39fa0",
     "GET /v1/subscription_items/{item}": "bf87765e3cee935e59a80c91acce61225e64eda29ae39bcf300640f3542d95f2",
+    "GET /v1/subscription_schedules": "fae79784382240802ecdc6470c538cbe94b395bfc96b55d1c150cb4f805fe3c3",
+    "GET /v1/subscription_schedules/{schedule}": "74fb4630226681d44da54456e0f947eb366628be935cbe7010fa413ff57cc4b7",
     "GET /v1/subscriptions": "1592fdbffb472e10751b44be713254bda1ff6a8d767a19b86065fa78a3065caf",
     "GET /v1/subscriptions/{subscription_exposed_id}": "376a4090ccdd4add4985bf552d9abbb0c80c3c632ca688200d6bc37c78fbcdc4",
     "POST /v1/billing_portal/sessions": "ce3717cc4b37b4f06d8071c2123a60443e125d0ec64c2af94ee33b6908317e69",
@@ -55,6 +57,10 @@
     "POST /v1/refunds": "c918531b2b0e8eb03324cfdd6e1d845a1fc9313f3a62ebb13ab27d1ffcf6f348",
     "POST /v1/refunds/{refund}": "b5e205c37b91e92e94e3cd84938dd6000fc63f6e95781ae2792b30040d2a82b9",
     "POST /v1/subscription_items/{item}": "3c4c6ce10cb106f27250a61436768db964e4cbed19585f7d5d1815354e406fe8",
+    "POST /v1/subscription_schedules": "5474922958c7878802c95e0e3f4f8c7fb95530277ff281eed59f679964e87b4a",
+    "POST /v1/subscription_schedules/{schedule}": "8f1b4901ba60e7a76303c78100b4f3add71a870aa10357e462ceef105f16d1d3",
+    "POST /v1/subscription_schedules/{schedule}/cancel": "9c470a1716a78c7e99522238b34a7da852503357439eda36f6cedd32f98769b1",
+    "POST /v1/subscription_schedules/{schedule}/release": "0f41ca3cb2352cc90b59d9096face5ad602d49c03c811a34c6e1a0a99bfb470d",
     "POST /v1/subscriptions": "6fabbc403a12bb40b0c1b91a319e1fd1c6542f3894bc57d2cf76e6853e7ce91d",
     "POST /v1/subscriptions/{subscription_exposed_id}": "ca64b5ee548da33d3ed63a867e024918de4907c8221659b3c6f4587651349e91"
   },
@@ -88,6 +94,8 @@
       "GET /v1/refunds/{refund}": "182f22334b8fccd079efd89a78bc76080fb0df57dbd55a1e3708648dabdea477",
       "GET /v1/subscription_items": "35f17587f8f9d6c6a475cbb035d51bc653f1bdce9eb1726f6289d4b813a39fa0",
       "GET /v1/subscription_items/{item}": "bf87765e3cee935e59a80c91acce61225e64eda29ae39bcf300640f3542d95f2",
+      "GET /v1/subscription_schedules": "fae79784382240802ecdc6470c538cbe94b395bfc96b55d1c150cb4f805fe3c3",
+      "GET /v1/subscription_schedules/{schedule}": "74fb4630226681d44da54456e0f947eb366628be935cbe7010fa413ff57cc4b7",
       "GET /v1/subscriptions": "1592fdbffb472e10751b44be713254bda1ff6a8d767a19b86065fa78a3065caf",
       "GET /v1/subscriptions/{subscription_exposed_id}": "376a4090ccdd4add4985bf552d9abbb0c80c3c632ca688200d6bc37c78fbcdc4",
       "POST /v1/billing_portal/sessions": "ce3717cc4b37b4f06d8071c2123a60443e125d0ec64c2af94ee33b6908317e69",
@@ -116,6 +124,10 @@
       "POST /v1/refunds": "c918531b2b0e8eb03324cfdd6e1d845a1fc9313f3a62ebb13ab27d1ffcf6f348",
       "POST /v1/refunds/{refund}": "b5e205c37b91e92e94e3cd84938dd6000fc63f6e95781ae2792b30040d2a82b9",
       "POST /v1/subscription_items/{item}": "3c4c6ce10cb106f27250a61436768db964e4cbed19585f7d5d1815354e406fe8",
+      "POST /v1/subscription_schedules": "5474922958c7878802c95e0e3f4f8c7fb95530277ff281eed59f679964e87b4a",
+      "POST /v1/subscription_schedules/{schedule}": "8f1b4901ba60e7a76303c78100b4f3add71a870aa10357e462ceef105f16d1d3",
+      "POST /v1/subscription_schedules/{schedule}/cancel": "9c470a1716a78c7e99522238b34a7da852503357439eda36f6cedd32f98769b1",
+      "POST /v1/subscription_schedules/{schedule}/release": "0f41ca3cb2352cc90b59d9096face5ad602d49c03c811a34c6e1a0a99bfb470d",
       "POST /v1/subscriptions": "6fabbc403a12bb40b0c1b91a319e1fd1c6542f3894bc57d2cf76e6853e7ce91d",
       "POST /v1/subscriptions/{subscription_exposed_id}": "ca64b5ee548da33d3ed63a867e024918de4907c8221659b3c6f4587651349e91"
     },
@@ -130,8 +142,8 @@
   },
   "subset": {
     "file": "contracts/stripe-openapi-subset.json",
-    "operations": 56,
+    "operations": 62,
     "schemas": 734,
-    "sha256": "73bad5ea4a5608d6495516206dbcf9f1ba68e48b72bb4bb77a56d25cc7c46c77"
+    "sha256": "567beca8027503b98d6e0de590d430aab3564c38c552f6093bf534273bdc3991"
   }
 }

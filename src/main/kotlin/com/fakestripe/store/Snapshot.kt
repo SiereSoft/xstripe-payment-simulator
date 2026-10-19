@@ -14,6 +14,7 @@ import com.fakestripe.model.Price
 import com.fakestripe.model.Product
 import com.fakestripe.model.Refund
 import com.fakestripe.model.Subscription
+import com.fakestripe.model.SubscriptionSchedule
 import com.fakestripe.webhook.WebhookJob
 import java.nio.file.Files
 import java.nio.file.Path
@@ -52,6 +53,7 @@ internal data class StoreSnapshot(
     val products: List<Product> = emptyList(),
     val prices: List<Price> = emptyList(),
     val subscriptions: List<Subscription> = emptyList(),
+    val subscriptionSchedules: List<SubscriptionSchedule> = emptyList(),
     val invoices: List<Invoice> = emptyList(),
     val checkoutSessions: List<CheckoutSession> = emptyList(),
     val portalSessions: List<BillingPortalSession> = emptyList(),
@@ -110,6 +112,7 @@ object Snapshot {
         products = store.products.values.toList(),
         prices = store.prices.values.toList(),
         subscriptions = store.subscriptions.values.toList(),
+        subscriptionSchedules = store.subscriptionSchedules.values.toList(),
         invoices = store.invoices.values.toList(),
         checkoutSessions = store.checkoutSessions.values.toList(),
         portalSessions = store.portalSessions.values.toList(),
@@ -166,6 +169,7 @@ object Snapshot {
             snap.refunds.forEach { refunds[it.id] = it }
             snap.products.forEach { products[it.id] = it }
             snap.prices.forEach { prices[it.id] = it }
+            snap.subscriptionSchedules.forEach { subscriptionSchedules[it.id] = it }
             snap.subscriptions.forEach { subscriptions[it.id] = it }
             snap.invoices.forEach { invoices[it.id] = it }
             snap.checkoutSessions.forEach { checkoutSessions[it.id] = it }

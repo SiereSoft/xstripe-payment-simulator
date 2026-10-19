@@ -243,6 +243,9 @@ object BillingOps {
 
     fun updateSubscription(store: DataStore, sub: Subscription, params: StripeParams): Subscription {
         val itemsData = params.indexedSubMaps("items")
+        if (sub.schedule != null && (itemsData.isNotEmpty() || params.has("cancel_at_period_end"))) {
+            throw StripeException.invalidRequest("The subscription is managed by a schedule; update or release that schedule first.", param = "subscription")
+        }
         if (itemsData.isNotEmpty() && isTerminal(sub)) {
             throw StripeException.invalidRequest(
                 "A canceled subscription can only update its cancellation_details and metadata.",
@@ -279,6 +282,9 @@ object BillingOps {
     fun updateSubscriptionItem(store: DataStore, itemId: String, params: StripeParams): SubscriptionItem {
         val sub = store.subscriptions.values.firstOrNull { s -> s.items.any { it.id == itemId } }
             ?: throw StripeException.resourceMissing("subscription_item", itemId)
+        if (sub.schedule != null && (params.has("price") || params.has("quantity"))) {
+            throw StripeException.invalidRequest("The subscription item is managed by a schedule.", param = "subscription")
+        }
         if (isTerminal(sub)) {
             throw StripeException.invalidRequest(
                 "The subscription ${sub.id} has been canceled and its items cannot be updated.",
@@ -422,6 +428,7 @@ object BillingOps {
             sub.status = "canceled"
             sub.canceledAt = now
             sub.endedAt = now
+            ScheduleOps.subscriptionCancelled(store, sub)
         }
         store.recordEvent(
             if (atPeriodEnd) "customer.subscription.updated" else "customer.subscription.deleted",
@@ -455,6 +462,9 @@ object BillingOps {
                 "Subscription ${sub.id} has a status of '${sub.status}' and cannot be renewed.",
                 code = "subscription_status_invalid",
             )
+        }
+        if (sub.schedule != null && store.now() < sub.currentPeriodEnd) {
+            throw StripeException.invalidRequest("Advance the simulator clock to renew a schedule-managed subscription.", param = "subscription")
         }
         if (sub.status == "trialing") return endTrial(store, sub)
         // A subscription set to cancel at period end simply ends when that period does.
@@ -536,6 +546,9 @@ object BillingOps {
      * use to warn a customer without cutting them off on the first decline.
      */
     fun payInvoice(store: DataStore, invoice: Invoice, customerId: String, pmId: String?): Boolean {
+        // Retrying an already paid invoice must never collect it a second time.
+        if (invoice.status == "paid") return true
+        if (invoice.status !in setOf("draft", "open")) throw StripeException.invalidRequest("Only a draft or open invoice can be paid.", param = "invoice")
         val now = store.now()
         if (invoice.finalizedAt == null) invoice.finalizedAt = now
         if (invoice.total <= 0) {

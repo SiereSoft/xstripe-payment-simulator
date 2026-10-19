@@ -56,6 +56,12 @@ object Operations {
         Route("GET", "/v1/prices/*", "price.retrieve"),
         Route("POST", "/v1/prices/*", "price.update"),
 
+        Route("POST", "/v1/subscription_schedules", "subscription_schedule.create"),
+        Route("GET", "/v1/subscription_schedules", "subscription_schedule.list"),
+        Route("GET", "/v1/subscription_schedules/*", "subscription_schedule.retrieve"),
+        Route("POST", "/v1/subscription_schedules/*", "subscription_schedule.update"),
+        Route("POST", "/v1/subscription_schedules/*/release", "subscription_schedule.release"),
+        Route("POST", "/v1/subscription_schedules/*/cancel", "subscription_schedule.cancel"),
         Route("POST", "/v1/subscriptions", "subscription.create"),
         Route("GET", "/v1/subscriptions", "subscription.list"),
         Route("GET", "/v1/subscriptions/*", "subscription.retrieve"),

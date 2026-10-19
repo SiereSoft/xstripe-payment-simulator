@@ -11,7 +11,7 @@
 
 It imitates Stripe's HTTP API closely enough that **Stripe's own client libraries — or an autonomous agent — drive it unmodified**, while remembering state across requests and restarts and re-creating an identical world from a seed. That statefulness is what makes it a training/evaluation *environment* rather than just a mock.
 
-It covers the payments core end to end — the PaymentIntent status state machine (the hard, valuable part), refunds, idempotency, the product/price catalog, subscriptions with trials, add-ons and proration, invoices, hosted Checkout with 3-D Secure, and signed webhooks with Stripe's retry schedule — plus deterministic seeding and Stripe-shaped error envelopes. Time is simulated: moving the clock renews subscriptions, ends trials, expires Checkout Sessions and retries webhooks, in order. A private controller speaks the [Siere simulator control protocol](docs/CONTROL-PROTOCOL.md) (clock, named faults including real dropped connections, an event journal, snapshots); [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) shows how to drive it and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) what matches Stripe and what is simplified. See [Roadmap](#roadmap) for what's next.
+It covers the payments core end to end — the PaymentIntent status state machine (the hard, valuable part), refunds, idempotency, the product/price catalog, subscriptions with trials, future subscription schedules, add-ons and proration, invoices, hosted Checkout with 3-D Secure, and signed webhooks with Stripe's retry schedule — plus deterministic seeding and Stripe-shaped error envelopes. Time is simulated: moving the clock renews subscriptions, ends trials, expires Checkout Sessions and retries webhooks, in order. A private controller speaks the [Siere simulator control protocol](docs/CONTROL-PROTOCOL.md) (clock, named faults including real dropped connections, an event journal, snapshots); [docs/AGENT-GUIDE.md](docs/AGENT-GUIDE.md) shows how to drive it and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) what matches Stripe and what is simplified. See [Roadmap](#roadmap) for what's next.
 
 > ⚠️ **Local development and testing only.** This is a simulator: it processes no real
 > payments, its authentication is simulated, and it is not hardened for exposure to
@@ -159,6 +159,8 @@ Requests are **`application/x-www-form-urlencoded`** with bracket notation (`met
 
 **Subscriptions** — `POST/GET/POST(update)/DELETE /v1/subscriptions[/{id}]` (trials, several items, `items[]` add/change/remove with prorations), `GET /v1/subscriptions`
 
+**Subscription schedules** — `POST/GET /v1/subscription_schedules`, `GET/POST /v1/subscription_schedules/{id}`, `POST .../{id}/release|cancel`. Migrate an existing subscription with `from_subscription`, then configure future recurring phases. Clock transitions happen before renewal collection. See [the supported schedule workflow](docs/SUBSCRIPTION-SCHEDULES.md).
+
 **Subscription items** — `GET /v1/subscription_items?subscription=…`, `GET/POST(update) /v1/subscription_items/{id}` (quantity changes with `proration_behavior`)
 
 **Invoices** — `GET/POST(update) /v1/invoices/{id}`, `POST .../pay`, `POST .../void`, `GET /v1/invoices`
@@ -226,7 +228,7 @@ Training requires reproducible starting states. `FAKE_STRIPE_SEED=N` (or `POST /
 curl -X POST "http://localhost:12112/v1/admin/reset" \
   -H "X-Siere-Control-Token: gym_control_local" -H "Content-Type: application/json" \
   -d '{"seed": "42", "episode_id": "run-42-001", "now": "2026-10-05T08:00:00.000Z"}'
-# -> { "status": "ok", "simulator": "stripe", "version": "0.2.0", "protocol": 1, "seed": "42",
+# -> { "status": "ok", "simulator": "stripe", "version": "0.3.0", "protocol": 1, "seed": "42",
 #      "episode_id": "run-42-001", "clock": { "now": "2026-10-05T08:00:00.000Z", "mode": "manual", ... },
 #      "revision": 7, "journal_seq": 311, "object": "admin.reset", "scenario": null, "task_context": {}, ... }
 ```

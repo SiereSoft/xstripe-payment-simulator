@@ -14,6 +14,7 @@ import com.fakestripe.model.Price
 import com.fakestripe.model.Product
 import com.fakestripe.model.Refund
 import com.fakestripe.model.Subscription
+import com.fakestripe.model.SubscriptionSchedule
 import com.fakestripe.control.Fault
 import com.fakestripe.control.RequestContext
 import com.fakestripe.util.IdGenerator
@@ -63,6 +64,7 @@ class DataStore(
     val refunds = LinkedHashMap<String, Refund>()
     val products = LinkedHashMap<String, Product>()
     val prices = LinkedHashMap<String, Price>()
+    val subscriptionSchedules = LinkedHashMap<String, SubscriptionSchedule>()
     val subscriptions = LinkedHashMap<String, Subscription>()
     val invoices = LinkedHashMap<String, Invoice>()
     val checkoutSessions = LinkedHashMap<String, CheckoutSession>()
@@ -125,6 +127,9 @@ class DataStore(
     fun requirePrice(id: String): Price =
         prices[id] ?: throw StripeException.resourceMissing("price", id)
 
+    fun requireSchedule(id: String): SubscriptionSchedule =
+        subscriptionSchedules[id] ?: throw StripeException.resourceMissing("subscription_schedule", id)
+
     fun requireSubscription(id: String): Subscription =
         subscriptions[id] ?: throw StripeException.resourceMissing("subscription", id)
 
@@ -167,6 +172,7 @@ class DataStore(
         id.startsWith("re_") -> refunds[id]?.toApiJson()
         id.startsWith("prod_") -> products[id]?.toApiJson()
         id.startsWith("price_") -> prices[id]?.toApiJson()
+        id.startsWith("sub_sched_") -> subscriptionSchedules[id]?.toApiJson()
         id.startsWith("sub_") -> subscriptions[id]?.let { subscriptionJson(it, basil) }
         id.startsWith("in_") -> invoices[id]?.let { invoiceJson(it, basil) }
         id.startsWith("cs_") -> checkoutSessions[id]?.toApiJson()

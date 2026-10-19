@@ -71,6 +71,7 @@ data class Subscription(
      */
     var failNextRenewals: Int = 0,
     var failRenewalCard: String? = null,
+    var schedule: String? = null,
 ) {
     /** Stripe sets `cancel_at` to the period end once `cancel_at_period_end` is requested. */
     val cancelAt: Long? get() = if (cancelAtPeriodEnd) currentPeriodEnd else null
@@ -86,6 +87,7 @@ data class Subscription(
         put("id", id)
         put("object", "subscription")
         put("customer", customer)
+        put("schedule", schedule)
         put("status", status)
         put("currency", currency)
         put("items", buildJsonObject {

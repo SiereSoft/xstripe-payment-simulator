@@ -10,7 +10,7 @@ plugins {
 group = "com.fakestripe"
 // The single source of the simulator's version: /v1/admin/health, the Server header, the
 // webhook User-Agent and the service info all read it from the generated resource below.
-version = "0.2.0"
+version = "0.3.0"
 
 repositories {
     mavenCentral()

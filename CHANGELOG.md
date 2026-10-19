@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-19
+
+### Added
+
+- Subscription schedules migrated from existing subscriptions: create/retrieve/list/update,
+  release/cancel, retained phase cursor and subscription linkage. Future phases switch recurring
+  items, cadence and metadata at billing boundaries using the existing scheduler and billing engine.
+  No immediate collection when a future change is saved. Explicitly documented supported subset.
+- Schedule events, native controller operation/fault identifiers, journal transitions, state export,
+  expansion, old-world defaults and persistent snapshots. Six more pinned OpenAPI operations.
+- Focused schedule/HTTP/SDK checks for cadence, dunning/retry, release/cancel, invalid inputs,
+  committed lost replies and old/new state. SSF integration walked against the actual distribution.
+
+### Fixed
+
+- Repeating payment of a paid invoice no longer creates another PaymentIntent or captured charge.
+
+
 ### Added
 
 - Stripe API versions: `Stripe-Version: 2025-03-31.basil` or later is answered in basil's shapes —

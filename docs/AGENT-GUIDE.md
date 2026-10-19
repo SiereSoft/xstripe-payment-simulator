@@ -75,6 +75,7 @@ in time order, everything that falls due on the way:
 - `customer.subscription.trial_will_end` three days before a trial ends (at once for shorter trials).
 - A trial ends: the first period starts at `trial_end`, its invoice is created and charged to the
   default payment method (`invoice.paid` → `active`, or `invoice.payment_failed` → `past_due`).
+- A schedule phase ends: future items, cadence and metadata apply before renewal; a final phase releases or cancels the subscription.
 - A period ends: the subscription renews the same way (or is canceled, when `cancel_at_period_end`).
 - Webhook retries fall due (in `auto` delivery mode) and are attempted at their own simulated time.
 
@@ -121,6 +122,7 @@ by snapshots and cleared by reset. The scenario `duplicate_payments_refund_respo
 | Products | `product.create`, `.list`, `.retrieve`, `.update`, `.delete` |
 | Prices | `price.create`, `.list`, `.retrieve`, `.update` |
 | Subscriptions | `subscription.create`, `.list`, `.retrieve`, `.update`, `subscription.cancel` (`DELETE`) |
+| Subscription schedules | `subscription_schedule.create`, `.list`, `.retrieve`, `.update`, `.release`, `.cancel`; scheduled transitions journal `subscription_schedule.transition` |
 | Subscription items | `subscription_item.list`, `.retrieve`, `.update` |
 | Invoices | `invoice.list`, `.retrieve`, `.update`, `.pay`, `.void` |
 | Invoice payments (basil) | `invoice_payment.list`, `invoice_payment.retrieve` |
@@ -298,7 +300,7 @@ The developer's controls:
 | List subscriptions (status, period, cancellation, invoices, forced failures) | `curl -s "$CTL/v1/admin/subscriptions?status=active" -H "$TOK"` |
 | Advance the clock (renewals, trial ends, period-end cancellations and webhook retries settle on the way) | `curl -s -X POST $CTL/v1/admin/clock/advance -H "$TOK" -H "$JSON" -d '{"seconds":2592060}'` |
 | Jump to a time | `curl -s -X POST $CTL/v1/admin/clock -H "$TOK" -H "$JSON" -d '{"now":"2026-12-01T00:00:00.000Z"}'` |
-| Force a renewal now (moves the period; a `cancel_at_period_end` subscription ends) | `curl -s -X POST $CTL/v1/admin/subscriptions/$SUB/renew -H "$TOK"` |
+| Force a renewal now (moves the period; a `cancel_at_period_end` subscription ends; managed schedules require a clock advance instead) | `curl -s -X POST $CTL/v1/admin/subscriptions/$SUB/renew -H "$TOK"` |
 | Fail the next renewal (dunning: `invoice.payment_failed`, `past_due`) | `curl -s -X POST $CTL/v1/admin/subscriptions/$SUB/fail_next_renewal -H "$TOK" -H "$JSON" -d '{"count":1,"card":"4000000000009995"}'` (`count: 0` clears it; `card` defaults to `4000000000000002`) |
 | Recover a failed invoice with the default card | `curl -s -X POST $API/v1/invoices/$FAILED_IN/pay -H "$KEY"` |
 | Cancel at period end (what the adapter sends) | `curl -s $API/v1/subscriptions/$SUB -H "$KEY" -H "$VER" -d cancel_at_period_end=true` |
@@ -313,3 +315,17 @@ until it is paid). Refusals the adapter maps to "Stripe cannot charge this amoun
 Stripe's minimum (`amount_too_small`, e.g. 0.50 EUR), above eight digits (`amount_too_large`) and a
 currency Stripe does not support (`currency_not_supported`), all `400` on `POST /v1/checkout/sessions`.
 
+
+## Future subscription terms (0.3.0)
+
+Use the actor's [schedule endpoints and two-step workflow](SUBSCRIPTION-SCHEDULES.md).
+No controller-only schedule or synthetic invoice is needed. Match named faults against
+`subscription_schedule.create`, `.update` or `.release` to lose a committed reply, then retry the
+original actor request with its original `Idempotency-Key`. Retain the same state file through
+restart. `GET /v1/admin/state` includes `subscription_schedules` for diagnosis.
+
+Advance the shared controller clock to the current phase end to bill the new terms. A future
+schedule does not charge when saved. `fail_next_renewal` also applies to the first changed phase;
+retry its open invoice with `POST /v1/invoices/{id}/pay`. Paying an already-paid invoice does not
+collect again. If an application has its own clock, advance its authorized development clock
+separately before expecting due access; the simulator cannot change the application's time.

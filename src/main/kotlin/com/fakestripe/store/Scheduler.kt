@@ -1,6 +1,7 @@
 package com.fakestripe.store
 
 import com.fakestripe.billing.BillingOps
+import com.fakestripe.billing.ScheduleOps
 
 /**
  * Work that falls due on the simulated clock: checkout-session expiry, trial reminders and trial
@@ -26,6 +27,9 @@ object Scheduler {
 
         class TrialEnd(atMs: Long, order: Int, val subscriptionId: String) :
             Item(atMs, 2, order, "trial_end:$subscriptionId")
+
+        class ScheduleTransition(atMs: Long, order: Int, val scheduleId: String) :
+            Item(atMs, 2, order, "schedule:$scheduleId")
 
         class Renew(atMs: Long, order: Int, val subscriptionId: String) :
             Item(atMs, 3, order, "renew:$subscriptionId")
@@ -55,6 +59,9 @@ object Scheduler {
     private fun worldItems(store: DataStore): Sequence<Item> = sequence {
         store.checkoutSessions.values.forEachIndexed { i, session ->
             if (session.status == "open") yield(Item.ExpireSession((session.expiresAt + 1) * 1000, i, session.id))
+        }
+        store.subscriptionSchedules.values.forEachIndexed { i, schedule ->
+            if (schedule.status == "active") yield(Item.ScheduleTransition(schedule.phases[schedule.currentPhase].endDate * 1000, i, schedule.id))
         }
         store.subscriptions.values.forEachIndexed { i, sub ->
             when {
@@ -100,6 +107,11 @@ object Scheduler {
         is Item.TrialEnd -> {
             val sub = BillingOps.endTrial(store, store.requireSubscription(item.subscriptionId))
             Applied("subscription.trial_end", refsOf(sub.id, sub.latestInvoice))
+        }
+        is Item.ScheduleTransition -> {
+            val schedule = store.requireSchedule(item.scheduleId)
+            ScheduleOps.advance(store, schedule)
+            Applied("subscription_schedule.transition", mapOf("subscription_schedule" to schedule.id))
         }
         is Item.Renew -> {
             val sub = BillingOps.renewSubscription(store, store.requireSubscription(item.subscriptionId))
