@@ -38,7 +38,7 @@ dependencies {
     testImplementation("io.ktor:ktor-server-test-host-jvm:$ktorVersion")
     testImplementation(kotlin("test"))
     // The "killer test": Stripe's own official SDK, unmodified, pointed at the simulator.
-    testImplementation("com.stripe:stripe-java:33.1.0")
+    testImplementation("com.stripe:stripe-java:33.2.0")
 }
 
 // The shipped image runs on a Java 11 JRE, so compile against and test on JDK 11 even when
